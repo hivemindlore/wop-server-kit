@@ -1,6 +1,6 @@
 #!/bin/bash
 # WoP Server Kit for Mac. Open Terminal and paste:
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/wop-server-kit/main/start-wop-server.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop-server.sh | bash
 # First run: gets uv (which provides Python) and the kit, then hands over to kit/setup/wopkit.py.
 set -euo pipefail
 
@@ -8,7 +8,7 @@ set -euo pipefail
 # whole function must be read before anything runs. The keyboard (/dev/tty) is given only to the
 # programs that ask questions.
 main() {
-REPO="OWNER/wop-server-kit"      # the GitHub repo with this kit
+REPO="hivemindlore/wop-server-kit"      # the GitHub repo with this kit
 BRANCH="main"
 UV_VERSION="0.9.2"
 UV_SHA_ARM="90b1e69da3d04772565dd556ae8e72c86bdb7da85a8dfc2c6b50c400b0e6aa97"

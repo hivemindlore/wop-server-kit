@@ -13,7 +13,7 @@ game, sets up a server, and connects it to the Claude Desktop app. One file, a f
 **You need:** internet, about 3 GB of free disk space, and a (free) [Claude account](https://claude.ai) if you
 want Claude to manage the server.
 
-1. **Download** the file: open [start-wop-server.bat](https://github.com/OWNER/wop-server-kit/blob/main/start-wop-server.bat)
+1. **Download** the file: open [start-wop-server.bat](https://github.com/hivemindlore/wop-server-kit/blob/main/start-wop-server.bat)
    and click the **download button** (the arrow ↓ at the top right of the file).
    If your browser warns that the file "isn't commonly downloaded", choose **Keep**.
 2. **Double-click** `start-wop-server.bat`.
@@ -39,7 +39,7 @@ The first time takes a while (the game is 1.2 GB). After that, your desktop has:
 
 Press the Windows key, type **PowerShell**, open it, paste this line and press Enter:
 ```
-irm https://raw.githubusercontent.com/OWNER/wop-server-kit/main/start-wop-server.bat | iex
+irm https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop-server.bat | iex
 ```
 </details>
 
@@ -53,7 +53,7 @@ Macs; on an Apple-silicon Mac (M1/M2/M3/M4) the kit installs Apple's free *Roset
 1. Open **Terminal** (press ⌘ Space, type *Terminal*, press Enter).
 2. Paste this line and press Enter:
    ```
-   curl -fsSL https://raw.githubusercontent.com/OWNER/wop-server-kit/main/start-wop-server.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop-server.sh | bash
    ```
 3. Answer the questions. If Claude Desktop isn't installed, the download page opens: install it, then go back
    to Terminal and press Enter.
@@ -126,7 +126,7 @@ A World of PADMAN game you had installed yourself stays.
   update), `home/wop/` (the host's settings; never touched by updates), `game/`, `tools/uv`, `python/`, `cache/`.
 - **Releasing an update:** change files under `kit/`, raise the number in `kit/VERSION`, push to `main`.
   Every host gets it the next time they use **Start WoP Server**.
-- **Repo name:** `OWNER/wop-server-kit` appears in `kit/kit.json`, both start scripts and this README.
+- **Repo name:** `hivemindlore/wop-server-kit` appears in `kit/kit.json`, both start scripts and this README.
 - **Tests:** `kit/mcp/tests` (MCP server, `pytest`), `kit/setup/test_wopkit.py` (setup helpers), and
   `kit/mcp/tests/integration.py` (every MCP tool against a real test server).
   For a "fresh friend" run on your own PC without touching your real setup, set these before running the .bat:

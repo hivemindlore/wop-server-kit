@@ -19,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repo     = 'OWNER/wop-server-kit'      # the GitHub repo with this kit
+$Repo     = 'hivemindlore/wop-server-kit'      # the GitHub repo with this kit
 $Branch   = 'main'
 $UvUrl    = 'https://github.com/astral-sh/uv/releases/download/0.9.2/uv-x86_64-pc-windows-msvc.zip'
 $UvSha256 = 'ba61d01b7470b282e09e7c82a053472723c2a737fb3d137bd0f111e420cc1d9f'
