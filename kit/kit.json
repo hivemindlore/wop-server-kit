@@ -1,0 +1,11 @@
+{
+  "repo": "OWNER/wop-server-kit",
+  "branch": "main",
+  "wop_zip_url": "https://github.com/PadWorld-Entertainment/worldofpadman/releases/download/v1.7.0/wop-1.7.0-unified.zip",
+  "wop_zip_sha256": "2eb94c0d98dadc70ce0f2e87780280cdbffd4a838b267f523835dc91bed30714",
+  "wop_zip_size": 1200906511,
+  "default_port": 27960,
+  "mcp_name": "wop-server",
+  "wop_download_page": "https://worldofpadman.net/en/download/",
+  "claude_download_page": "https://claude.ai/download"
+}

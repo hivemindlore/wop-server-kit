@@ -1,0 +1,8 @@
+* text=auto
+# Stored byte-for-byte with Windows line endings, so a raw download from GitHub still works in cmd
+*.bat -text
+*.cmd -text
+*.sh text eol=lf
+*.command text eol=lf
+*.py text eol=lf
+*.cfg text eol=lf
