@@ -415,7 +415,7 @@ class Game:
     # ------------------------------------------------------------------ joining and naming
 
     def _cvar(self, name: str) -> str | None:
-        """Read a setting: the server answers '"sv_hostname" is:"Kevin's server^7" default:...'."""
+        """Read a setting: the server answers '"sv_hostname" is:"My server^7" default:...'."""
         match = re.search(r'is:"(.*?)\^7"', self.rcon.command(name))
         return clean(match.group(1)) if match else None
 

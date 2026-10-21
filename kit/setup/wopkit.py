@@ -10,7 +10,8 @@ and connects Claude Desktop to it.
     wopkit.py banner      the "how to join" text shown when the server window opens
     wopkit.py uninstall   remove everything again
 
-Started by start-wop-server.bat / start-wop-server.sh (first time) and by the desktop shortcuts.
+Started by start-wop-server.bat / start-wop-server.sh (first time) and by the shortcuts in the
+"World of PADMAN" folder on the desktop.
 Only uses the Python standard library; uv provides Python.
 """
 
@@ -52,6 +53,9 @@ WOPKIT = KIT / "setup" / "wopkit.py"
 SERVER_BIN = Path("wopded.x86_64.exe") if IS_WIN else Path("wopded.x86_64.app/Contents/MacOS/wopded.x86_64")
 CLIENT_BIN = Path("wop.x86_64.exe") if IS_WIN else Path("wop.x86_64.app")
 FIREWALL_RULE = "WoP Server Kit"
+MAC_FIREWALL = "/usr/libexec/ApplicationFirewall/socketfilterfw"
+SHORTCUT_FOLDER = "World of PADMAN"                 # on the desktop
+SERVER_SUBFOLDER = "WOP-server"                     # inside it: Start, Stop, Help
 NEED_FREE_GB = 3
 
 # uv keeps its Python and packages inside the kit folder, so uninstalling removes everything
@@ -414,6 +418,13 @@ def run_elevated(script: str) -> bool:
 def ensure_firewall(inst: dict, game: Path) -> None:
     if os.environ.get("WOP_SKIP_FIREWALL"):
         return
+    if IS_WIN:
+        _firewall_windows(inst, game)
+    elif IS_MAC:
+        _firewall_mac(inst, game)
+
+
+def _firewall_windows(inst: dict, game: Path) -> None:
     program = str(game / SERVER_BIN)
     if (firewall_rule_program() or "").lower() == program.lower():
         return
@@ -429,6 +440,44 @@ def ensure_firewall(inst: dict, game: Path) -> None:
     else:
         say("   Skipped. The server still works, but other computers may not be able to connect.")
         say("   Run Start WoP Server again to retry.")
+
+
+def socketfilterfw(*args: str, sudo: bool = False) -> str:
+    """Run the macOS application firewall tool; its answer in lower case ("" with sudo or if it can't run)."""
+    cmd = (["sudo"] if sudo else []) + [MAC_FIREWALL, *args]
+    try:  # sudo asks for the password on the terminal itself, like in ensure_rosetta
+        out = subprocess.run(cmd, stdout=subprocess.DEVNULL if sudo else subprocess.PIPE,
+                             stderr=None if sudo else subprocess.DEVNULL, text=True, check=False).stdout
+    except OSError:
+        return ""
+    return (out or "").lower()
+
+
+def _mac_permitted(program: str) -> bool:
+    return "permitted" in socketfilterfw("--getappblocked", program)
+
+
+def _firewall_mac(inst: dict, game: Path) -> None:
+    """The Mac firewall is off by default. When it's on, it would block (or ask about) the server every time."""
+    if "enabled" not in socketfilterfw("--getglobalstate"):
+        return
+    program = str(game / SERVER_BIN)
+    if not _mac_permitted(program):
+        step("Letting the players on your network connect.")
+        say("   Your Mac's firewall is on. You may be asked for your Mac password")
+        say("   (typing it shows nothing; press Enter after). This only lets World of PADMAN players in.")
+        socketfilterfw("--add", program, sudo=True)
+        socketfilterfw("--unblockapp", program, sudo=True)
+        if not _mac_permitted(program):
+            say("   Skipped. The server still works, but other computers may not be able to connect.")
+            say("   Run Start WoP Server again to retry.")
+            return
+        say("   Done.")
+    inst["firewall"] = program
+    if "enabled" in socketfilterfw("--getblockall"):
+        say("\n   Your Mac blocks ALL incoming connections, so other computers can't join.")
+        say("   To fix it: System Settings -> Network -> Firewall -> Options ->")
+        say("   turn off \"Block all incoming connections\", then start the server again.")
 
 
 def ensure_rosetta() -> None:
@@ -614,51 +663,67 @@ def ensure_shortcuts(inst: dict, game: Path) -> None:
     try:
         _make_shortcuts(inst, game)
     except OSError as e:  # e.g. the Mac asked "allow access to Desktop?" and the answer was no
-        say(f"   Couldn't put the shortcuts on your desktop ({e.strerror or e}).")
+        say(f"   Couldn't put the shortcuts in the {SHORTCUT_FOLDER} folder on your desktop ({e.strerror or e}).")
         say(f"   Start the server later by running this kit again, or with {LAUNCHER} start")
 
 
 def _make_shortcuts(inst: dict, game: Path) -> None:
-    desk = desktop_dir()
+    """Desktop/World of PADMAN/ holds Play; its WOP-server/ subfolder holds Start, Stop and Help."""
+    folder = desktop_dir() / SHORTCUT_FOLDER
+    server_dir = folder / SERVER_SUBFOLDER
+    server_dir.mkdir(parents=True, exist_ok=True)
     help_url = f"https://github.com/{SETTINGS['repo']}#readme"
     made = []
     if IS_WIN:
         icon = f"{game / CLIENT_BIN},0"
-        links = [("Start WoP Server", LAUNCHER, "start", ROOT),
-                 ("Stop WoP Server", LAUNCHER, "stop", ROOT)]
-        if not inst.get("game_reused"):
-            links.append(("Play World of PADMAN", game / CLIENT_BIN, "", game))
+        links = [(server_dir / "Start WoP Server.lnk", LAUNCHER, "start", ROOT),
+                 (server_dir / "Stop WoP Server.lnk", LAUNCHER, "stop", ROOT),
+                 (folder / "Play World of PADMAN.lnk", game / CLIENT_BIN, "", game)]
         lines = ["$s = New-Object -ComObject WScript.Shell"]
-        for name, target, args, workdir in links:
-            lines += [f"$l = $s.CreateShortcut({ps_quote(desk / (name + '.lnk'))})",
+        for path, target, args, workdir in links:
+            lines += [f"$l = $s.CreateShortcut({ps_quote(path)})",
                       f"$l.TargetPath = {ps_quote(target)}", f"$l.Arguments = {ps_quote(args)}",
                       f"$l.WorkingDirectory = {ps_quote(workdir)}", f"$l.IconLocation = {ps_quote(icon)}",
                       "$l.Save()"]
-            made.append(desk / (name + ".lnk"))
+            made.append(path)
         powershell("\n".join(lines))
-        help_link = desk / "WoP Server Help.url"
+        help_link = server_dir / "WoP Server Help.url"
         help_link.write_text(f"[InternetShortcut]\r\nURL={help_url}\r\n", encoding="utf-8", newline="")
         made.append(help_link)
     else:
         for name, body in {"Start WoP Server.command": f'exec "{LAUNCHER}" start\n',
                            "Stop WoP Server.command": f'"{LAUNCHER}" stop\n'}.items():
-            path = desk / name
+            path = server_dir / name
             path.write_text("#!/bin/bash\n" + body, encoding="utf-8", newline="\n")
             path.chmod(0o755)
             made.append(path)
         # Finder opens a link to an .app like the app itself, and a .webloc in the browser
-        play = desk / "Play World of PADMAN.app"
+        play = folder / "Play World of PADMAN.app"
         if play.is_symlink() or play.exists():
             play.unlink()
         play.symlink_to(game / CLIENT_BIN)
         made.append(play)
-        help_link = desk / "WoP Server Help.webloc"
+        help_link = server_dir / "WoP Server Help.webloc"
         help_link.write_text(
             '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
             '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>URL</key>'
             f"<string>{help_url}</string></dict></plist>\n", encoding="utf-8", newline="\n")
         made.append(help_link)
+    # older kits put the shortcuts loose on the desktop: remove those
+    for old in set(inst.get("shortcuts", [])) - {str(p) for p in made}:
+        Path(old).unlink(missing_ok=True)
     inst["shortcuts"] = [str(p) for p in made if p.exists() or p.is_symlink()]
+    inst["shortcut_dirs"] = [str(server_dir), str(folder)]
+
+
+def remove_shortcuts(inst: dict) -> None:
+    for shortcut in inst.get("shortcuts", []):
+        Path(shortcut).unlink(missing_ok=True)
+    for folder in inst.get("shortcut_dirs", []):  # innermost first; anything the user put there stays
+        try:
+            Path(folder).rmdir()
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------- commands
@@ -704,8 +769,7 @@ def cmd_start(args) -> None:
     game = ensure_game(inst)
     save_install(inst)
     ensure_server_files(inst, game)
-    if IS_WIN:
-        ensure_firewall(inst, game)
+    ensure_firewall(inst, game)
     ensure_rosetta()
     if ensure_mcp_ready():
         ensure_claude(inst, first_run)
@@ -718,7 +782,8 @@ def cmd_start(args) -> None:
         pause(8)
         return
     if first_run:
-        say("\nAll set! From now on, start the server with \"Start WoP Server\" on your desktop.")
+        say("\nAll set! From now on, start the server with \"Start WoP Server\" in the")
+        say(f"{SHORTCUT_FOLDER} folder on your desktop (inside {SERVER_SUBFOLDER}).")
     say("\nStarting the server...\n")
     if os.environ.get("WOP_NO_SERVER"):
         return
@@ -744,7 +809,7 @@ def cmd_stop(_args) -> None:
 
 def cmd_uninstall(_args) -> None:
     inst = load_install()
-    say("This removes the WoP server, its settings and the desktop shortcuts from this computer.")
+    say(f"This removes the WoP server, its settings and the {SHORTCUT_FOLDER} folder on your desktop.")
     if inst.get("game_reused"):
         say(f"(Your World of PADMAN game in {inst['game_dir']} stays.)")
     if _tty_input('Type "yes" to remove everything: ').strip().lower() != "yes":
@@ -757,9 +822,11 @@ def cmd_uninstall(_args) -> None:
     if IS_WIN and inst.get("firewall"):
         say("Windows will ask for permission to remove the firewall rule; click Yes.")
         run_elevated(f"Remove-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -ErrorAction SilentlyContinue")
+    if IS_MAC and inst.get("firewall"):
+        say("Removing the firewall permission; you may be asked for your Mac password.")
+        socketfilterfw("--remove", inst["firewall"], sudo=True)
     set_claude_entry(None)
-    for shortcut in inst.get("shortcuts", []):
-        Path(shortcut).unlink(missing_ok=True)
+    remove_shortcuts(inst)
     say("Removed. The WoP Server folder is deleted after this window closes.")
     if IS_WIN:
         # uv.exe (running this script) is inside the folder, so delete it once we've exited

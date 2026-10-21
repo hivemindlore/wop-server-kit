@@ -163,6 +163,76 @@ def test_generated_scripts(tmp_path, monkeypatch, platform):
         assert "\r\r\n" not in run and run.count("\r\n") == run.count("\n")
 
 
+def test_shortcuts_in_folder(tmp_path, monkeypatch):
+    """Play in Desktop/World of PADMAN, the rest in its WOP-server subfolder; old loose shortcuts go."""
+    monkeypatch.setattr(wopkit, "IS_WIN", False)
+    monkeypatch.setattr(wopkit, "IS_MAC", True)
+    monkeypatch.setattr(wopkit, "CLIENT_BIN", Path("wop.x86_64.app"))
+    desk = tmp_path / "Desktop"
+    desk.mkdir()
+    monkeypatch.setenv("WOP_DESKTOP", str(desk))
+    game = tmp_path / "game"
+    (game / "wop.x86_64.app").mkdir(parents=True)
+    old = desk / "Start WoP Server.command"
+    old.write_text("old")
+    inst = {"shortcuts": [str(old)]}
+    try:
+        wopkit._make_shortcuts(inst, game)
+    except OSError as e:  # Windows without the right to make symlinks
+        pytest.skip(f"no symlinks here: {e}")
+
+    folder = desk / "World of PADMAN"
+    assert (folder / "Play World of PADMAN.app").is_symlink()
+    assert {p.name for p in (folder / "WOP-server").iterdir()} == {
+        "Start WoP Server.command", "Stop WoP Server.command", "WoP Server Help.webloc"}
+    assert not old.exists()
+    assert sorted(p.name for p in desk.iterdir()) == ["World of PADMAN"]
+
+    wopkit.remove_shortcuts(inst)
+    assert list(desk.iterdir()) == []
+
+
+def test_remove_shortcuts_keeps_users_files(tmp_path):
+    folder = tmp_path / "World of PADMAN"
+    (folder / "WOP-server").mkdir(parents=True)
+    (folder / "my notes.txt").write_text("mine")
+    wopkit.remove_shortcuts({"shortcuts": [], "shortcut_dirs": [str(folder / "WOP-server"), str(folder)]})
+    assert not (folder / "WOP-server").exists() and (folder / "my notes.txt").exists()
+
+
+@pytest.mark.parametrize("state,blocked,expect_sudo", [
+    ("Firewall is disabled. (State = 0)", "", False),
+    ("Firewall is enabled. (State = 1)", "The application is permitted", False),
+    ("Firewall is enabled. (State = 1)", "The application is blocked", True),
+])
+def test_mac_firewall(monkeypatch, tmp_path, state, blocked, expect_sudo):
+    monkeypatch.setattr(wopkit, "IS_WIN", False)
+    monkeypatch.setattr(wopkit, "IS_MAC", True)
+    monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
+    calls, allowed = [], []
+
+    def fake(*args, sudo=False):
+        calls.append((args, sudo))
+        if sudo and args[0] == "--unblockapp":
+            allowed.append(args[1])
+        if args[0] == "--getglobalstate":
+            return state.lower()
+        if args[0] == "--getappblocked":
+            return "the application is permitted" if allowed else blocked.lower()
+        return "firewall has block all state set to disabled."
+
+    monkeypatch.setattr(wopkit, "socketfilterfw", fake)
+    inst = {}
+    wopkit.ensure_firewall(inst, tmp_path / "game")
+    program = str(tmp_path / "game" / wopkit.SERVER_BIN)
+    sudo_calls = [args for args, sudo in calls if sudo]
+    if expect_sudo:
+        assert sudo_calls == [("--add", program), ("--unblockapp", program)]
+    else:
+        assert sudo_calls == []
+    assert inst.get("firewall") == (None if "disabled" in state else program)
+
+
 def test_settings_pins():
     assert len(wopkit.SETTINGS["wop_zip_sha256"]) == 64
     assert wopkit.SETTINGS["wop_zip_url"].startswith("https://github.com/PadWorld-Entertainment/")

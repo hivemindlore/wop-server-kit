@@ -25,14 +25,14 @@ want Claude to manage the server.
      (this lets the players on your network connect, nothing from the internet);
    - "*Install Claude Desktop now?*" → press Enter for yes, then sign in to Claude when it opens.
 
-The first time takes a while (the game is 1.2 GB). After that, your desktop has:
+The first time takes a while (the game is 1.2 GB). After that, your desktop has a **World of PADMAN** folder:
 
-| Shortcut | What it does |
-|----------|--------------|
-| **Start WoP Server** | Starts the server (and installs updates of this kit) |
-| **Stop WoP Server** | Stops it (closing the server window does the same) |
+| In the folder | What it does |
+|---------------|--------------|
 | **Play World of PADMAN** | Play on this computer too |
-| **WoP Server Help** | Opens this page |
+| **WOP-server** → **Start WoP Server** | Starts the server (and installs updates of this kit) |
+| **WOP-server** → **Stop WoP Server** | Stops it (closing the server window does the same) |
+| **WOP-server** → **WoP Server Help** | Opens this page |
 
 <details>
 <summary>Can't download or run the .bat file? Use this instead</summary>
@@ -45,7 +45,7 @@ irm https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop
 
 ## Mac (beta)
 
-> The Mac version hasn't been tested on a real Mac yet. If you try it, please tell the person who sent you this!
+> The Mac version hasn't been tested on a real Mac yet.
 
 **You need:** macOS 11 or newer, internet, about 3 GB of free disk space. World of PADMAN is made for Intel
 Macs; on an Apple-silicon Mac (M1/M2/M3/M4) the kit installs Apple's free *Rosetta* (it asks for your Mac password).
@@ -55,10 +55,12 @@ Macs; on an Apple-silicon Mac (M1/M2/M3/M4) the kit installs Apple's free *Roset
    ```
    curl -fsSL https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop-server.sh | bash
    ```
-3. Answer the questions. If Claude Desktop isn't installed, the download page opens: install it, then go back
+3. Answer the questions. If your Mac's firewall is on, it asks for your Mac password once, so the players on your
+   network can connect. If Claude Desktop isn't installed, the download page opens: install it, then go back
    to Terminal and press Enter.
 
-Your desktop then has **Start WoP Server**, **Stop WoP Server** and **Play World of PADMAN**. Double-click them.
+Your desktop then has a **World of PADMAN** folder with **Play World of PADMAN**, and a **WOP-server** folder inside
+it with **Start WoP Server**, **Stop WoP Server** and **WoP Server Help**. Double-click them.
 
 ---
 
@@ -90,10 +92,10 @@ The full list is in [gamemodes.md](kit/docs/gamemodes.md).
 
 | Problem | Try this |
 |---------|----------|
-| Others can't see the server | Same Wi-Fi? (A *guest* Wi-Fi usually blocks this.) Use the `/connect …` line from the server window. Run **Start WoP Server** again and click **Yes** on the Windows permission box. |
+| Others can't see the server | Same Wi-Fi? (A *guest* Wi-Fi usually blocks this.) Use the `/connect …` line from the server window. Run **Start WoP Server** again and click **Yes** on the Windows permission box (Mac: type your password when asked). |
 | Claude doesn't know the server | Fully quit Claude Desktop (right-click its icon by the clock → Quit, or ⌘Q on Mac) and open it again. Claude Desktop → Settings → Developer should list **wop-server**. |
 | "The server isn't answering" in Claude | The server is off. Ask Claude to start it, or use **Start WoP Server**. |
-| The server window shows an error | Close it and use **Start WoP Server** again. Still broken? Send a photo of the window to the person who sent you this kit. |
+| The server window shows an error | Close it and use **Start WoP Server** again. |
 
 ## Removing it
 
@@ -106,7 +108,7 @@ Mac: paste this in Terminal and type `yes` when asked:
 "$HOME/Library/Application Support/WoPServer/wopkit.sh" uninstall
 ```
 
-This removes the server, its settings, the shortcuts, the firewall rule and the Claude connection.
+This removes the server, its settings, the World of PADMAN desktop folder, the firewall rule and the Claude connection.
 A World of PADMAN game you had installed yourself stays.
 
 ---
@@ -120,8 +122,8 @@ A World of PADMAN game you had installed yourself stays.
   [uv](https://github.com/astral-sh/uv) (pinned version + SHA-256) and this repo's `kit/` folder, then run
   `kit/setup/wopkit.py`. That script (Python standard library only) does everything else: downloads the official
   WoP 1.7.0 zip from the PadWorld GitHub release (SHA-256 checked), writes the server config with a random rcon
-  password, adds the firewall rule, prepares and registers the MCP server (`kit/mcp`) in Claude Desktop, makes the
-  shortcuts and starts the server.
+  password, allows the server through the Windows Firewall / macOS application firewall, prepares and registers
+  the MCP server (`kit/mcp`) in Claude Desktop, makes the desktop folder with the shortcuts and starts the server.
 - **Install folder:** `%LOCALAPPDATA%\WoPServer` / `~/Library/Application Support/WoPServer`: `kit/` (replaced on
   update), `home/wop/` (the host's settings; never touched by updates), `game/`, `tools/uv`, `python/`, `cache/`.
 - **Releasing an update:** change files under `kit/`, raise the number in `kit/VERSION`, push to `main`.
