@@ -405,22 +405,29 @@ def ensure_server_files(inst: dict, game: Path) -> None:
 
 # Prints, as JSON: the kit's rule, the enabled inbound block rules that could hit the server, the firewall
 # profiles in effect (group policy included), the active network categories and any other firewall product.
-# The filters are fetched once for all rules: asking per rule takes ~0.4 s each.
+# The filters are fetched once for all rules: asking per rule takes ~0.4 s each. Without admin rights Windows
+# leaves part of them out ("Access is denied" halfway), so the rules we look at are asked for one by one when missing.
 _WIN_NETWORK_REPORT = r"""
 $ErrorActionPreference = 'SilentlyContinue'
 $apps = @{}; Get-NetFirewallApplicationFilter | ForEach-Object { $apps[$_.InstanceID] = "$($_.Program)" }
 $ports = @{}; Get-NetFirewallPortFilter | ForEach-Object { $ports[$_.InstanceID] = $_ }
+function Filters($r) {
+  $app = if ($apps.ContainsKey($r.Name)) { $apps[$r.Name] } else { "$(($r | Get-NetFirewallApplicationFilter).Program)" }
+  $pf = $ports[$r.Name]; if (-not $pf) { $pf = $r | Get-NetFirewallPortFilter }
+  return $app, $pf
+}
 $rule = $null; $blocks = @()
 foreach ($r in Get-NetFirewallRule) {
-  $pf = $ports[$r.Name]
   if ($r.DisplayName -eq $ruleName -and -not $rule) {
+    $app, $pf = Filters $r
     $rule = [ordered]@{ enabled = "$($r.Enabled)"; action = "$($r.Action)"; direction = "$($r.Direction)"
-      profile = "$($r.Profile)"; program = $apps[$r.Name]; protocol = "$($pf.Protocol)"
+      profile = "$($r.Profile)"; program = $app; protocol = "$($pf.Protocol)"
       remote = @(($r | Get-NetFirewallAddressFilter).RemoteAddress | ForEach-Object { "$_" }) }
   } elseif ("$($r.Direction)" -eq 'Inbound' -and "$($r.Action)" -eq 'Block' -and "$($r.Enabled)" -eq 'True') {
+    $app, $pf = Filters $r
     $local = @($pf.LocalPort | ForEach-Object { "$_" })
-    if ($apps[$r.Name] -like '*wopded*' -or $local -contains $port) {
-      $blocks += [ordered]@{ name = $r.Name; display = $r.DisplayName; program = $apps[$r.Name]
+    if ($app -like '*wopded*' -or $local -contains $port) {
+      $blocks += [ordered]@{ name = $r.Name; display = $r.DisplayName; program = $app
         protocol = "$($pf.Protocol)"; ports = $local }
     }
   }
@@ -479,10 +486,12 @@ def windows_network_problems(report: dict, program: str, port: int) -> list[tupl
         problems.append(("Windows Firewall has no rule that lets the players in.", kit_rule_script(program)))
     elif rule.get("enabled") != "True":
         problems.append((f'The firewall rule "{FIREWALL_RULE}" is turned off.', kit_rule_script(program)))
+    # an empty value is one Windows wouldn't show without admin rights: unknown, so not counted as changed
     elif not (rule.get("action") == "Allow" and rule.get("direction") == "Inbound"
-              and rule.get("protocol") in ("UDP", "Any") and _same_program(rule.get("program"), program)
+              and rule.get("protocol") in ("UDP", "Any", "")
+              and (not rule.get("program") or _same_program(rule.get("program"), program))
               and (rule.get("profile") == "Any" or all(p["name"] in rule.get("profile", "") for p in watched))
-              and {"LocalSubnet", "Any"} & set(rule.get("remote") or [])):
+              and (not rule.get("remote") or {"LocalSubnet", "Any"} & set(rule["remote"]))):
         problems.append((f'The firewall rule "{FIREWALL_RULE}" was changed and no longer lets the players in.',
                          kit_rule_script(program)))
 

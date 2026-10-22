@@ -257,6 +257,10 @@ def win_report(rule=KIT_RULE, blocks=(), allow_inbound="True", local_rules="True
 @pytest.mark.parametrize("report,expected", [
     (win_report(), []),
     (win_report(rule={**KIT_RULE, "program": WIN_PROGRAM.upper()}), []),  # paths compare without case
+    # without admin rights Windows may not show some of the rule's settings: unknown is not "changed"
+    (win_report(rule={**KIT_RULE, "protocol": "", "program": "", "remote": []}), []),
+    (win_report(rule={**KIT_RULE, "protocol": "TCP"}), ["New-NetFirewallRule"]),
+    (win_report(rule={**KIT_RULE, "remote": ["Internet"]}), ["New-NetFirewallRule"]),
     (win_report(rule=None), ["New-NetFirewallRule"]),
     (win_report(rule={**KIT_RULE, "enabled": "False"}), ["New-NetFirewallRule"]),
     (win_report(rule={**KIT_RULE, "program": r"C:\old\wopded.x86_64.exe"}), ["New-NetFirewallRule"]),
