@@ -371,6 +371,8 @@ def ensure_server_files(inst: dict, game: Path) -> None:
         return (f'+set fs_basepath "{game}" +set fs_homepath "{HOME}" +set logfile 2 +set dedicated 1 '
                 f'+set net_port {port_var} +set com_hunkMegs 128 +exec server-friends.cfg')
 
+    # The "how to join" text gets its own window: in the server window the server's log scrolls it away
+    join_info = f'"{UV}" run --offline --quiet --script "{WOPKIT}" joininfo'
     if IS_WIN:
         env = "\r\n".join(f'set "{k}={v}"' for k, v in UV_ENV.items())
         RUN_SERVER.write_text(
@@ -379,6 +381,7 @@ def ensure_server_files(inst: dict, game: Path) -> None:
             "title World of PADMAN server\r\n"
             f'set "PORT={port}"\r\n{env}\r\n'
             f'"{UV}" run --offline --quiet --script "{WOPKIT}" banner\r\n'
+            f'start "World of PADMAN - how to join" {join_info}\r\n'
             f'cd /d "{game}"\r\n'
             f'"{server}" {server_args("%PORT%")}\r\n'
             "if errorlevel 1 (echo. & echo The server stopped with an error. & pause) else (timeout /t 3 >nul)\r\n",
@@ -388,17 +391,20 @@ def ensure_server_files(inst: dict, game: Path) -> None:
             f'{env}\r\n"{UV}" run --script "{WOPKIT}" %*\r\n', encoding="utf-8", newline="")
     else:
         env = "\n".join(f'export {k}="{v}"' for k, v in UV_ENV.items())
+        join_script = RUN_SERVER.with_name("join-info.command")  # opened in its own Terminal window
+        join_script.write_text(f"#!/bin/bash\n{env}\n{join_info}\n", encoding="utf-8", newline="\n")
         RUN_SERVER.write_text(
             "#!/bin/bash\n# Made by the WoP Server Kit (rewritten on every start). Runs the game server.\n"
             f"PORT={port}\n{env}\n"
             f'"{UV}" run --offline --quiet --script "{WOPKIT}" banner\n'
+            f'open -a Terminal "{join_script}"\n'
             f'cd "{game}"\n'
             f'"{server}" {server_args("$PORT")}\n',
             encoding="utf-8", newline="\n")
         LAUNCHER.write_text(f'#!/bin/bash\n{env}\nexec "{UV}" run --script "{WOPKIT}" "$@"\n', encoding="utf-8",
                             newline="\n")
-        RUN_SERVER.chmod(0o755)
-        LAUNCHER.chmod(0o755)
+        for script in (RUN_SERVER, LAUNCHER, join_script):
+            script.chmod(0o755)
 
 
 # --------------------------------------------------------------------------- firewall / Rosetta
@@ -916,14 +922,75 @@ def cmd_banner(_args) -> None:
     say("")
     say("  Players on your network: World of PADMAN -> Multiplayer -> LAN -> Join.")
     if ips:
-        say(f"  Not in the list? Press ~ in the game and type:  /connect {ips[0]}{suffix}")
-    say(f"  Players need World of PADMAN 1.7.0 (free): {SETTINGS['wop_download_page']}")
+        say(f"  Not in the list? Click SPECIFY there: address {ips[0]}, port {port}  (or /connect {ips[0]}{suffix})")
+    say('  All the steps are in the "how to join" window that opened next to this one.')
     say("")
     say("  Want another map, game mode, bots or weapons? Just ask Claude, for example:")
     say('     "Switch to Capture The Lolly with 4 bots on each team"')
     say("")
     say("  Keep this window open while you play. Close it (or use Stop WoP Server) to stop.")
     say(line)
+
+
+# This computer's IPv4 addresses on networks with a router. Virtual adapters (WSL, Hyper-V, VirtualBox) have none,
+# so their addresses, which would only confuse the players, are left out.
+_WIN_ADDRESSES = r"""
+Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
+  ForEach-Object { foreach ($a in $_.IPv4Address) { "$($a.IPAddress)`t$($_.InterfaceAlias)" } }
+"""
+
+
+def join_addresses() -> list[tuple[str, str]]:
+    """(address, connection name) the players can use, the one other devices should use first."""
+    from wop.actions import Game
+    preferred = Game.lan_addresses()
+    found: list[tuple[str, str]] = []
+    if IS_WIN:
+        for line in powershell(_WIN_ADDRESSES).stdout.splitlines():
+            ip, _, name = line.strip().partition("\t")
+            if ip and not ip.startswith("169.254.") and ip not in [a for a, _ in found]:
+                found.append((ip, name))
+    if not found:
+        return [(ip, "") for ip in preferred[:1]]
+    return sorted(found, key=lambda entry: bool(preferred) and entry[0] != preferred[0])
+
+
+def cmd_joininfo(_args) -> None:
+    """The "how to join" window that opens next to the server window, and stays."""
+    from wop import config
+    port = load_install().get("port", SETTINGS["default_port"])
+    suffix = "" if port == 27960 else f":{port}"
+    addresses = join_addresses()
+    password = config.join_password()
+    line = "=" * 74
+    say(line)
+    say(f'  How to join "{config.server_name()}"')
+    say(line)
+    say("  1. Everyone must be on the SAME network as this computer: the same Wi-Fi")
+    say("     or router (a guest Wi-Fi doesn't work). Everyone needs World of")
+    say(f"     PADMAN 1.7.0 (free): {SETTINGS['wop_download_page']}")
+    say("")
+    say("  2. In World of PADMAN: Multiplayer -> source LAN -> pick the server -> Join.")
+    say("")
+    if addresses:
+        ip, name = addresses[0]
+        say("  3. Not in the list? In the Multiplayer screen click SPECIFY and fill in:")
+        say(f"         Address:  {ip:<16} {f'({name})' if name else ''}".rstrip())
+        say(f"         Port:     {port}")
+        say(f"     Or press ~ in the game and type:  /connect {ip}{suffix}")
+        for ip, name in addresses[1:]:
+            say(f"     Players on this computer's other network{f' ({name})' if name else ''} use address {ip}")
+    else:
+        say("  3. This computer doesn't seem to be connected to a network, so nobody else")
+        say("     can join yet. Connect it to your Wi-Fi or router and start the server again.")
+    if password:
+        say("")
+        say(f"  Join password: {password}  (players first type /password {password} in the console, ~)")
+    say("")
+    say("  The server runs in the other window. You can close this one;")
+    say("  the server keeps running.")
+    say(line)
+    pause()
 
 
 def cmd_start(args) -> None:
@@ -1014,11 +1081,12 @@ def cmd_uninstall(_args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="WoP Server Kit")
-    parser.add_argument("command", choices=["start", "stop", "banner", "uninstall"])
+    parser.add_argument("command", choices=["start", "stop", "banner", "joininfo", "uninstall"])
     parser.add_argument("--no-update", action="store_true")
     args = parser.parse_args()
     try:
-        {"start": cmd_start, "stop": cmd_stop, "banner": cmd_banner, "uninstall": cmd_uninstall}[args.command](args)
+        {"start": cmd_start, "stop": cmd_stop, "banner": cmd_banner, "joininfo": cmd_joininfo,
+         "uninstall": cmd_uninstall}[args.command](args)
     except KeyboardInterrupt:
         say("\nStopped.")
     except SystemExit as e:

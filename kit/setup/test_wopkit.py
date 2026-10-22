@@ -153,11 +153,15 @@ def test_generated_scripts(tmp_path, monkeypatch, platform):
     assert (root / "home" / "wop" / "teams.cfg").exists()
     run = wopkit.RUN_SERVER.read_bytes().decode()
     assert "net_port" in run and "27961" in run and "fs_homepath" in run
+    # the "how to join" window opens before the server
+    assert 0 < run.index("join-info.command" if mac else "joininfo") < run.index("net_port")
     if mac:
+        join_script = root / "join-info.command"
+        assert f'open -a Terminal "{join_script}"' in run and "joininfo" in join_script.read_text()
         assert "\r" not in run
         bash = shutil.which("bash")
         if bash:
-            for script in (wopkit.RUN_SERVER, wopkit.LAUNCHER):
+            for script in (wopkit.RUN_SERVER, wopkit.LAUNCHER, join_script):
                 assert subprocess.run([bash, "-n", str(script)]).returncode == 0
     else:
         assert "\r\r\n" not in run and run.count("\r\n") == run.count("\n")
@@ -336,6 +340,48 @@ def test_network_notes(monkeypatch, capsys):
     monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: ["192.168.1.20"]))
     wopkit.network_notes(27961)
     assert capsys.readouterr().out == ""
+
+
+def test_join_addresses(monkeypatch):
+    from types import SimpleNamespace
+
+    from wop.actions import Game
+    monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: ["10.0.1.71", "172.20.112.1"]))
+    monkeypatch.setattr(wopkit, "IS_WIN", True)
+    out = "192.168.0.237\tEthernet\r\n10.0.1.71\tWi-Fi\r\n169.254.7.7\tBluetooth\r\n10.0.1.71\tWi-Fi\r\n"
+    monkeypatch.setattr(wopkit, "powershell", lambda script: SimpleNamespace(stdout=out))
+    # the default route's network first; no self-assigned or duplicate addresses
+    assert wopkit.join_addresses() == [("10.0.1.71", "Wi-Fi"), ("192.168.0.237", "Ethernet")]
+    monkeypatch.setattr(wopkit, "IS_WIN", False)  # Mac: just the default route's address
+    assert wopkit.join_addresses() == [("10.0.1.71", "")]
+
+
+@pytest.mark.parametrize("addresses,port,password,expected,unexpected", [
+    ([("10.0.1.71", "Wi-Fi")], 27960, "",
+     ["SPECIFY", "Address:  10.0.1.71        (Wi-Fi)", "Port:     27960", "/connect 10.0.1.71\n"],
+     ["other network", "password", "seem to be connected"]),
+    ([("10.0.1.71", "Wi-Fi")], 27961, "",
+     ["Port:     27961", "/connect 10.0.1.71:27961"], []),
+    ([("10.0.1.71", "Wi-Fi"), ("192.168.0.237", "Ethernet")], 27960, "",
+     ["Address:  10.0.1.71", "other network (Ethernet) use address 192.168.0.237"], []),
+    ([("10.0.1.71", "")], 27960, "pad123",
+     ["Address:  10.0.1.71\n", "Join password: pad123", "/password pad123"], []),
+    ([], 27960, "", ["doesn't seem to be connected to a network"], ["SPECIFY", "Address:"]),
+])
+def test_joininfo(monkeypatch, capsys, addresses, port, password, expected, unexpected):
+    from wop import config
+    monkeypatch.setenv("WOP_ASSUME_YES", "1")  # no "Press Enter" wait
+    monkeypatch.setattr(wopkit, "join_addresses", lambda: addresses)
+    monkeypatch.setattr(wopkit, "load_install", lambda: {"port": port})
+    monkeypatch.setattr(config, "server_name", lambda: "Kim's server")
+    monkeypatch.setattr(config, "join_password", lambda: password)
+    wopkit.cmd_joininfo(None)
+    out = capsys.readouterr().out
+    assert "Kim's server" in out and "SAME network" in out
+    for text in expected:
+        assert text in out
+    for text in unexpected:
+        assert text not in out
 
 
 def test_settings_pins():

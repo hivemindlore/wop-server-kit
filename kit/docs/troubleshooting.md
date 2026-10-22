@@ -220,10 +220,28 @@ Windows' rules don't count for it. In its settings, allow the program shown as `
 `wopded.x86_64.exe` in the WoP Server's `game` folder), or allow UDP port 27960 on your home network.
 
 ### The players can join with /connect but don't see the server in the LAN list
+Joining by address always works: in the game's Multiplayer screen click **Specify** and enter the address and port
+from the *How to join* window (or press ~ and type `/connect <address>`). To make the LAN list work:
 - The port must be 27960 to 27963 (see `$port`). To change it: set `"port": 27960` in `install.json`, then use
   **Start WoP Server**.
 - Everyone must be on the same network (the first three numbers of the address, like `192.168.1.`, are the same).
-- Some routers don't pass the LAN list's search between Wi-Fi and cable. `/connect <address>` always works.
+- Some routers don't pass the LAN list's search between Wi-Fi and cable.
+- **A virtual network adapter on the player's computer** (WSL, Hyper-V, VirtualBox, VMware, a VPN) can take the
+  LAN list's search: Windows sends it out of only one adapter, the connected one with the lowest metric. Check on
+  the **player's** computer; the first line is the adapter the search uses:
+  ```powershell
+  Get-NetRoute -DestinationPrefix 255.255.255.255/32 -AddressFamily IPv4 | ForEach-Object {
+    $if = Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4
+    [pscustomobject]@{ Adapter = $_.InterfaceAlias; Metric = $_.RouteMetric + $if.InterfaceMetric; State = $if.ConnectionState }
+  } | Where-Object State -eq Connected | Sort-Object Metric | Format-Table -AutoSize
+  ```
+  If the first line isn't the Wi-Fi or Ethernet that connects to the server, make that one win **(admin)**,
+  using its name from the list:
+  ```powershell
+  Set-NetIPInterface -InterfaceAlias "Wi-Fi" -InterfaceMetric 10
+  ```
+  This also makes Windows prefer that connection for the internet when several are connected. To undo:
+  `Set-NetIPInterface -InterfaceAlias "Wi-Fi" -AutomaticMetric Enabled`
 
 ### No answer from the other computers, but the firewall is fine
 - **Guest Wi-Fi:** guest networks keep devices apart. Use the normal Wi-Fi on all computers.

@@ -73,7 +73,9 @@ Everyone needs World of PADMAN 1.7.0 (free) from **https://worldofpadman.net/en/
 the **same Wi-Fi / network** as the computer running the server.
 
 1. Start World of PADMAN → **Multiplayer** → set the source to **LAN** → pick your server → **Join**.
-2. Not in the list? Press **~** (the key under Esc) and type the `/connect …` line shown in the server window.
+2. Not in the list? Click **Specify** in the Multiplayer screen and enter the **address** and **port** shown in
+   the *How to join* window, which opens next to the server window. Or press **~** (the key under Esc) and type
+   the `/connect …` line from that window.
 
 Or ask Claude: *"How do my friends join?"*
 
@@ -98,7 +100,7 @@ network). If something blocks them, it tells you what and asks *"Do you want to 
 
 | Problem | Try this |
 |---------|----------|
-| Others can't see the server | Same Wi-Fi? (A *guest* Wi-Fi usually blocks this.) Use the `/connect …` line from the server window. Run **Start WoP Server** again, answer yes and click **Yes** on the Windows permission box (Mac: type your password when asked). |
+| Others can't see the server | Same Wi-Fi? (A *guest* Wi-Fi usually blocks this.) Click **Specify** in the game's Multiplayer screen and enter the address and port from the *How to join* window. Run **Start WoP Server** again, answer yes and click **Yes** on the Windows permission box (Mac: type your password when asked). |
 | Claude doesn't know the server | Fully quit Claude Desktop (right-click its icon by the clock → Quit, or ⌘Q on Mac) and open it again. Claude Desktop → Settings → Developer should list **wop-server**. |
 | "The server isn't answering" in Claude | The server is off. Ask Claude to start it, or use **Start WoP Server**. |
 | The server window shows an error | Close it and use **Start WoP Server** again. |
