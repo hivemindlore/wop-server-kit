@@ -54,8 +54,10 @@ SERVER_BIN = Path("wopded.x86_64.exe") if IS_WIN else Path("wopded.x86_64.app/Co
 CLIENT_BIN = Path("wop.x86_64.exe") if IS_WIN else Path("wop.x86_64.app")
 FIREWALL_RULE = "WoP Server Kit"
 MAC_FIREWALL = "/usr/libexec/ApplicationFirewall/socketfilterfw"
+LAN_PORTS = range(27960, 27964)                     # the ports the game's LAN list searches
+TROUBLESHOOTING_URL = f"https://github.com/{SETTINGS['repo']}/blob/{SETTINGS['branch']}/kit/docs/troubleshooting.md"
 SHORTCUT_FOLDER = "World of PADMAN"                 # on the desktop
-SERVER_SUBFOLDER = "WOP-server"                     # inside it: Start, Stop, Help
+SERVER_SUBFOLDER = "WOP-server"                     # inside it: Start, Stop, Help, Troubleshooting
 NEED_FREE_GB = 3
 
 # uv keeps its Python and packages inside the kit folder, so uninstalling removes everything
@@ -401,10 +403,109 @@ def ensure_server_files(inst: dict, game: Path) -> None:
 
 # --------------------------------------------------------------------------- firewall / Rosetta
 
-def firewall_rule_program() -> str | None:
-    out = powershell(f"$r = Get-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -ErrorAction SilentlyContinue;"
-                     " if ($r) { ($r | Get-NetFirewallApplicationFilter).Program }").stdout.strip()
-    return out.splitlines()[0] if out else None
+# Prints, as JSON: the kit's rule, the enabled inbound block rules that could hit the server, the firewall
+# profiles in effect (group policy included), the active network categories and any other firewall product.
+# The filters are fetched once for all rules: asking per rule takes ~0.4 s each.
+_WIN_NETWORK_REPORT = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$apps = @{}; Get-NetFirewallApplicationFilter | ForEach-Object { $apps[$_.InstanceID] = "$($_.Program)" }
+$ports = @{}; Get-NetFirewallPortFilter | ForEach-Object { $ports[$_.InstanceID] = $_ }
+$rule = $null; $blocks = @()
+foreach ($r in Get-NetFirewallRule) {
+  $pf = $ports[$r.Name]
+  if ($r.DisplayName -eq $ruleName -and -not $rule) {
+    $rule = [ordered]@{ enabled = "$($r.Enabled)"; action = "$($r.Action)"; direction = "$($r.Direction)"
+      profile = "$($r.Profile)"; program = $apps[$r.Name]; protocol = "$($pf.Protocol)"
+      remote = @(($r | Get-NetFirewallAddressFilter).RemoteAddress | ForEach-Object { "$_" }) }
+  } elseif ("$($r.Direction)" -eq 'Inbound' -and "$($r.Action)" -eq 'Block' -and "$($r.Enabled)" -eq 'True') {
+    $local = @($pf.LocalPort | ForEach-Object { "$_" })
+    if ($apps[$r.Name] -like '*wopded*' -or $local -contains $port) {
+      $blocks += [ordered]@{ name = $r.Name; display = $r.DisplayName; program = $apps[$r.Name]
+        protocol = "$($pf.Protocol)"; ports = $local }
+    }
+  }
+}
+$profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore | ForEach-Object {
+  [ordered]@{ name = "$($_.Name)"; enabled = "$($_.Enabled)"; allow_inbound = "$($_.AllowInboundRules)"
+    local_rules = "$($_.AllowLocalFirewallRules)" } })
+$active = @(Get-NetConnectionProfile | ForEach-Object { "$($_.NetworkCategory)" -replace 'DomainAuthenticated', 'Domain' })
+$others = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct | ForEach-Object { "$($_.displayName)" })
+ConvertTo-Json -Compress -Depth 5 -InputObject ([ordered]@{
+  rule = $rule; blocks = $blocks; profiles = $profiles; active = $active; others = $others })
+"""
+
+
+def windows_network_report(port: int) -> dict | None:
+    """What the Windows Firewall does with the server's traffic (no admin needed). None if it can't be read."""
+    out = powershell(f"$ruleName = {ps_quote(FIREWALL_RULE)}; $port = '{port}'\n{_WIN_NETWORK_REPORT}").stdout
+    try:
+        report = json.loads(out.strip())
+    except ValueError:
+        return None
+    return report if isinstance(report, dict) and report.get("profiles") else None
+
+
+def _same_program(a: str | None, b: str | None) -> bool:
+    def norm(path: str | None) -> str:
+        return os.path.expandvars(path or "").replace("/", "\\").lower()
+    return norm(a) == norm(b)
+
+
+def _port_listed(port: int, ports: list[str]) -> bool:
+    for entry in ports:
+        low, _, high = entry.partition("-")
+        if low.isdigit() and int(low) <= port <= int(high if high.isdigit() else low):
+            return True
+    return False
+
+
+def kit_rule_script(program: str) -> str:
+    return (f"Remove-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -ErrorAction SilentlyContinue; "
+            f"New-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -Direction Inbound -Action Allow "
+            f"-Protocol UDP -Program {ps_quote(program)} -RemoteAddress LocalSubnet -Profile Any | Out-Null")
+
+
+def windows_network_problems(report: dict, program: str, port: int) -> list[tuple[str, str | None]]:
+    """What stops other computers from reaching the server: (what's wrong, PowerShell that fixes it or None)."""
+    profiles = report.get("profiles") or []
+    active = set(report.get("active") or [])
+    watched = [p for p in profiles if p.get("enabled") == "True" and (not active or p.get("name") in active)]
+    if not watched:  # the firewall is off for this network
+        return []
+    problems: list[tuple[str, str | None]] = []
+
+    rule = report.get("rule")
+    if not rule:
+        problems.append(("Windows Firewall has no rule that lets the players in.", kit_rule_script(program)))
+    elif rule.get("enabled") != "True":
+        problems.append((f'The firewall rule "{FIREWALL_RULE}" is turned off.', kit_rule_script(program)))
+    elif not (rule.get("action") == "Allow" and rule.get("direction") == "Inbound"
+              and rule.get("protocol") in ("UDP", "Any") and _same_program(rule.get("program"), program)
+              and (rule.get("profile") == "Any" or all(p["name"] in rule.get("profile", "") for p in watched))
+              and {"LocalSubnet", "Any"} & set(rule.get("remote") or [])):
+        problems.append((f'The firewall rule "{FIREWALL_RULE}" was changed and no longer lets the players in.',
+                         kit_rule_script(program)))
+
+    for block in report.get("blocks") or []:
+        name = block.get("display") or block.get("name")
+        if _same_program(block.get("program"), program):
+            message = (f'Windows Firewall blocks the server (rule "{name}", usually made by clicking Cancel '
+                       "when Windows asked to allow it).")
+            problems.append((message, f"Remove-NetFirewallRule -Name {ps_quote(block['name'])}"))
+        elif (block.get("protocol") in ("UDP", "Any") and block.get("program") in (None, "", "Any")
+              and _port_listed(port, block.get("ports") or [])):
+            problems.append((f'Windows Firewall rule "{name}" blocks port {port}.',
+                             f"Disable-NetFirewallRule -Name {ps_quote(block['name'])}"))
+
+    shut = [p["name"] for p in watched if p.get("allow_inbound") == "False"]
+    if shut:
+        problems.append((f"Windows Firewall blocks ALL incoming connections on this network ({', '.join(shut)}).",
+                         f"Set-NetFirewallProfile -Profile {','.join(shut)} -AllowInboundRules True"))
+    if any(p.get("local_rules") == "False" for p in watched):
+        message = ("This computer's firewall is managed by an organization, which ignores the kit's rule. "
+                   f"Ask whoever manages it to allow UDP port {port} for World of PADMAN.")
+        problems.append((message, None))
+    return problems
 
 
 def run_elevated(script: str) -> bool:
@@ -415,31 +516,80 @@ def run_elevated(script: str) -> bool:
     return powershell(outer).returncode == 0
 
 
-def ensure_firewall(inst: dict, game: Path) -> None:
-    if os.environ.get("WOP_SKIP_FIREWALL"):
-        return
-    if IS_WIN:
-        _firewall_windows(inst, game)
-    elif IS_MAC:
-        _firewall_mac(inst, game)
+def ensure_firewall(inst: dict, game: Path, port: int) -> None:
+    """Checked on every start: can the other computers on the network reach the server? If not, offer to fix it."""
+    if not os.environ.get("WOP_SKIP_FIREWALL"):
+        if IS_WIN:
+            _firewall_windows(inst, game, port)
+        elif IS_MAC:
+            _firewall_mac(inst, game)
+    network_notes(port)
 
 
-def _firewall_windows(inst: dict, game: Path) -> None:
+def _say_problems(problems: list[str]) -> None:
+    say("   Other computers on your network can't join your server yet:")
+    for problem in problems:
+        say(f"   - {problem}")
+
+
+def _say_not_fixed(problems: list[str]) -> None:
+    say("   Not everything could be fixed:")
+    for problem in problems:
+        say(f"   - {problem}")
+    say(f"   The server still works on this computer. Help with this: {TROUBLESHOOTING_URL}")
+
+
+def _say_declined() -> None:
+    say("   OK, nothing changed. The server still works, but only on this computer.")
+    say("   You'll be asked again the next time you start the server.")
+
+
+def _firewall_windows(inst: dict, game: Path, port: int) -> None:
     program = str(game / SERVER_BIN)
-    if (firewall_rule_program() or "").lower() == program.lower():
+    step("Checking that the players on your network can join...")
+    report = windows_network_report(port)
+    if report is None:
+        say("   Couldn't read the Windows Firewall settings, so this was skipped.")
+        say(f"   If the players can't join: {TROUBLESHOOTING_URL}")
         return
-    step("Letting the players on your network connect.")
-    say("   Windows will now ask for permission (\"Do you want to allow this app to make changes?\").")
-    say("   Click YES. This only allows World of PADMAN players on your own network, nothing from the internet.")
-    rule = (f"Remove-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -ErrorAction SilentlyContinue; "
-            f"New-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -Direction Inbound -Action Allow "
-            f"-Protocol UDP -Program {ps_quote(program)} -RemoteAddress LocalSubnet -Profile Any | Out-Null")
-    if run_elevated(rule) and (firewall_rule_program() or "").lower() == program.lower():
-        say("   Done.")
-        inst["firewall"] = program
+    problems = windows_network_problems(report, program, port)
+    if not problems:
+        say("   OK.")
+    elif not any(fix for _, fix in problems):
+        _say_not_fixed([message for message, _ in problems])
     else:
-        say("   Skipped. The server still works, but other computers may not be able to connect.")
-        say("   Run Start WoP Server again to retry.")
+        _say_problems([message for message, _ in problems])
+        if yes("   Do you want to allow this?"):
+            say("   Windows will now ask for permission (\"Do you want to allow this app to make changes?\").")
+            say("   Click YES. This only lets World of PADMAN players on your own network in, nothing from the internet.")
+            accepted = run_elevated("; ".join(fix for _, fix in problems if fix))
+            report = windows_network_report(port) or report
+            problems = windows_network_problems(report, program, port)
+            if not problems:
+                say("   Done. Other computers on your network can now join.")
+            elif not accepted and any(fix for _, fix in problems):
+                _say_declined()
+            else:
+                _say_not_fixed([message for message, _ in problems])
+        else:
+            _say_declined()
+    if report.get("rule"):
+        inst["firewall"] = program  # so uninstall removes the rule
+    others = report.get("others") or []
+    if others and others != inst.get("other_firewalls"):
+        say(f"   Note: {', '.join(others)} also guards this computer. If the players can't join, allow")
+        say("   World of PADMAN there too (or ask its support how to allow a program on your home network).")
+    inst["other_firewalls"] = others
+
+
+def network_notes(port: int) -> None:
+    """Things the kit can't fix but that decide whether the players find the server."""
+    from wop.actions import Game
+    if not Game.lan_addresses():
+        say("\n   Note: this computer doesn't seem to be connected to a network, so nobody else can join yet.")
+    if port not in LAN_PORTS:
+        say(f"\n   Note: the game's LAN list only searches ports 27960-27963, and this server uses {port}.")
+        say(f"   The players won't see it in the list; they join with /connect <address>:{port}")
 
 
 def socketfilterfw(*args: str, sudo: bool = False) -> str:
@@ -462,22 +612,35 @@ def _firewall_mac(inst: dict, game: Path) -> None:
     if "enabled" not in socketfilterfw("--getglobalstate"):
         return
     program = str(game / SERVER_BIN)
-    if not _mac_permitted(program):
-        step("Letting the players on your network connect.")
-        say("   Your Mac's firewall is on. You may be asked for your Mac password")
-        say("   (typing it shows nothing; press Enter after). This only lets World of PADMAN players in.")
-        socketfilterfw("--add", program, sudo=True)
-        socketfilterfw("--unblockapp", program, sudo=True)
+
+    def problems() -> list[str]:
+        found = []
         if not _mac_permitted(program):
-            say("   Skipped. The server still works, but other computers may not be able to connect.")
-            say("   Run Start WoP Server again to retry.")
-            return
-        say("   Done.")
-    inst["firewall"] = program
-    if "enabled" in socketfilterfw("--getblockall"):
-        say("\n   Your Mac blocks ALL incoming connections, so other computers can't join.")
-        say("   To fix it: System Settings -> Network -> Firewall -> Options ->")
-        say("   turn off \"Block all incoming connections\", then start the server again.")
+            found.append("Your Mac's firewall doesn't let the server in.")
+        if "enabled" in socketfilterfw("--getblockall"):
+            found.append("Your Mac's firewall blocks ALL incoming connections.")
+        return found
+
+    found = problems()
+    if found:
+        step("Checking that the players on your network can join...")
+        _say_problems(found)
+        if yes("   Do you want to allow this?"):
+            say("   You may be asked for your Mac password (typing it shows nothing; press Enter after).")
+            if not _mac_permitted(program):
+                socketfilterfw("--add", program, sudo=True)
+                socketfilterfw("--unblockapp", program, sudo=True)
+            if "enabled" in socketfilterfw("--getblockall"):
+                socketfilterfw("--setblockall", "off", sudo=True)
+            found = problems()
+            if found:
+                _say_not_fixed(found)
+            else:
+                say("   Done. Other computers on your network can now join.")
+        else:
+            _say_declined()
+    if _mac_permitted(program):
+        inst["firewall"] = program  # so uninstall removes the permission
 
 
 def ensure_rosetta() -> None:
@@ -668,11 +831,12 @@ def ensure_shortcuts(inst: dict, game: Path) -> None:
 
 
 def _make_shortcuts(inst: dict, game: Path) -> None:
-    """Desktop/World of PADMAN/ holds Play; its WOP-server/ subfolder holds Start, Stop and Help."""
+    """Desktop/World of PADMAN/ holds Play; its WOP-server/ subfolder holds Start, Stop, Help and Troubleshooting."""
     folder = desktop_dir() / SHORTCUT_FOLDER
     server_dir = folder / SERVER_SUBFOLDER
     server_dir.mkdir(parents=True, exist_ok=True)
-    help_url = f"https://github.com/{SETTINGS['repo']}#readme"
+    web_links = {"WoP Server Help": f"https://github.com/{SETTINGS['repo']}#readme",
+                 "WoP Server Troubleshooting": TROUBLESHOOTING_URL}
     made = []
     if IS_WIN:
         icon = f"{game / CLIENT_BIN},0"
@@ -687,9 +851,10 @@ def _make_shortcuts(inst: dict, game: Path) -> None:
                       "$l.Save()"]
             made.append(path)
         powershell("\n".join(lines))
-        help_link = server_dir / "WoP Server Help.url"
-        help_link.write_text(f"[InternetShortcut]\r\nURL={help_url}\r\n", encoding="utf-8", newline="")
-        made.append(help_link)
+        for name, url in web_links.items():
+            link = server_dir / f"{name}.url"
+            link.write_text(f"[InternetShortcut]\r\nURL={url}\r\n", encoding="utf-8", newline="")
+            made.append(link)
     else:
         for name, body in {"Start WoP Server.command": f'exec "{LAUNCHER}" start\n',
                            "Stop WoP Server.command": f'"{LAUNCHER}" stop\n'}.items():
@@ -703,12 +868,13 @@ def _make_shortcuts(inst: dict, game: Path) -> None:
             play.unlink()
         play.symlink_to(game / CLIENT_BIN)
         made.append(play)
-        help_link = server_dir / "WoP Server Help.webloc"
-        help_link.write_text(
-            '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>URL</key>'
-            f"<string>{help_url}</string></dict></plist>\n", encoding="utf-8", newline="\n")
-        made.append(help_link)
+        for name, url in web_links.items():
+            link = server_dir / f"{name}.webloc"
+            link.write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>URL</key>'
+                f"<string>{url}</string></dict></plist>\n", encoding="utf-8", newline="\n")
+            made.append(link)
     # older kits put the shortcuts loose on the desktop: remove those
     for old in set(inst.get("shortcuts", [])) - {str(p) for p in made}:
         Path(old).unlink(missing_ok=True)
@@ -769,7 +935,7 @@ def cmd_start(args) -> None:
     game = ensure_game(inst)
     save_install(inst)
     ensure_server_files(inst, game)
-    ensure_firewall(inst, game)
+    ensure_firewall(inst, game, inst["port"])
     ensure_rosetta()
     if ensure_mcp_ready():
         ensure_claude(inst, first_run)

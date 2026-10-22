@@ -184,7 +184,8 @@ def test_shortcuts_in_folder(tmp_path, monkeypatch):
     folder = desk / "World of PADMAN"
     assert (folder / "Play World of PADMAN.app").is_symlink()
     assert {p.name for p in (folder / "WOP-server").iterdir()} == {
-        "Start WoP Server.command", "Stop WoP Server.command", "WoP Server Help.webloc"}
+        "Start WoP Server.command", "Stop WoP Server.command", "WoP Server Help.webloc",
+        "WoP Server Troubleshooting.webloc"}
     assert not old.exists()
     assert sorted(p.name for p in desk.iterdir()) == ["World of PADMAN"]
 
@@ -200,37 +201,137 @@ def test_remove_shortcuts_keeps_users_files(tmp_path):
     assert not (folder / "WOP-server").exists() and (folder / "my notes.txt").exists()
 
 
-@pytest.mark.parametrize("state,blocked,expect_sudo", [
-    ("Firewall is disabled. (State = 0)", "", False),
-    ("Firewall is enabled. (State = 1)", "The application is permitted", False),
-    ("Firewall is enabled. (State = 1)", "The application is blocked", True),
+@pytest.mark.parametrize("state,blocked,block_all,answer,expect_sudo", [
+    ("Firewall is disabled. (State = 0)", "", False, "y", []),
+    ("Firewall is enabled. (State = 1)", "The application is permitted", False, "y", []),
+    ("Firewall is enabled. (State = 1)", "The application is blocked", False, "y", ["--add", "--unblockapp"]),
+    ("Firewall is enabled. (State = 1)", "The application is blocked", False, "n", []),
+    ("Firewall is enabled. (State = 1)", "The application is permitted", True, "y", ["--setblockall"]),
 ])
-def test_mac_firewall(monkeypatch, tmp_path, state, blocked, expect_sudo):
+def test_mac_firewall(monkeypatch, tmp_path, state, blocked, block_all, answer, expect_sudo):
     monkeypatch.setattr(wopkit, "IS_WIN", False)
     monkeypatch.setattr(wopkit, "IS_MAC", True)
     monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
-    calls, allowed = [], []
+    monkeypatch.delenv("WOP_ASSUME_YES", raising=False)
+    monkeypatch.setattr(wopkit, "_tty_input", lambda prompt: answer)
+    monkeypatch.setattr(wopkit, "network_notes", lambda port: None)
+    calls, allowed, open_all = [], [], [block_all]
 
     def fake(*args, sudo=False):
         calls.append((args, sudo))
         if sudo and args[0] == "--unblockapp":
             allowed.append(args[1])
+        if sudo and args == ("--setblockall", "off"):
+            open_all[0] = False
         if args[0] == "--getglobalstate":
             return state.lower()
         if args[0] == "--getappblocked":
             return "the application is permitted" if allowed else blocked.lower()
-        return "firewall has block all state set to disabled."
+        if args[0] == "--getblockall":
+            return "block all enabled!" if open_all[0] else "block all disabled!"
+        return ""
 
     monkeypatch.setattr(wopkit, "socketfilterfw", fake)
     inst = {}
-    wopkit.ensure_firewall(inst, tmp_path / "game")
+    wopkit.ensure_firewall(inst, tmp_path / "game", 27960)
     program = str(tmp_path / "game" / wopkit.SERVER_BIN)
-    sudo_calls = [args for args, sudo in calls if sudo]
-    if expect_sudo:
-        assert sudo_calls == [("--add", program), ("--unblockapp", program)]
+    assert [args[0] for args, sudo in calls if sudo] == expect_sudo
+    if "--add" in expect_sudo:
+        assert ("--add", program) in [args for args, _ in calls]
+    permitted = "disabled" not in state and ("permitted" in blocked or answer == "y")
+    assert inst.get("firewall") == (program if permitted else None)
+
+
+WIN_PROGRAM = r"C:\Users\Kim\AppData\Local\WoPServer\game\wopded.x86_64.exe"
+KIT_RULE = {"enabled": "True", "action": "Allow", "direction": "Inbound", "profile": "Any",
+            "program": WIN_PROGRAM, "protocol": "UDP", "remote": ["LocalSubnet"]}
+
+
+def win_report(rule=KIT_RULE, blocks=(), allow_inbound="True", local_rules="True", enabled="True",
+               active=("Private",)):
+    return {"rule": rule, "blocks": list(blocks), "active": list(active), "others": [],
+            "profiles": [{"name": name, "enabled": enabled, "allow_inbound": allow_inbound, "local_rules": local_rules}
+                         for name in ("Domain", "Private", "Public")]}
+
+
+@pytest.mark.parametrize("report,expected", [
+    (win_report(), []),
+    (win_report(rule={**KIT_RULE, "program": WIN_PROGRAM.upper()}), []),  # paths compare without case
+    (win_report(rule=None), ["New-NetFirewallRule"]),
+    (win_report(rule={**KIT_RULE, "enabled": "False"}), ["New-NetFirewallRule"]),
+    (win_report(rule={**KIT_RULE, "program": r"C:\old\wopded.x86_64.exe"}), ["New-NetFirewallRule"]),
+    (win_report(rule={**KIT_RULE, "profile": "Private"}, active=["Public"]), ["New-NetFirewallRule"]),
+    (win_report(rule={**KIT_RULE, "profile": "Private"}, active=["Private"]), []),
+    (win_report(blocks=[{"name": "{abc}", "display": "wopded.x86_64.exe", "program": WIN_PROGRAM,
+                         "protocol": "UDP", "ports": ["Any"]}]), ["Remove-NetFirewallRule -Name '{abc}'"]),
+    (win_report(blocks=[{"name": "{x}", "display": "Old copy", "program": r"D:\Games\WoP\wopded.x86_64.exe",
+                         "protocol": "UDP", "ports": ["Any"]}]), []),  # another copy of the game: not ours
+    (win_report(blocks=[{"name": "{p}", "display": "No games", "program": "Any", "protocol": "UDP",
+                         "ports": ["27950-27970"]}]), ["Disable-NetFirewallRule -Name '{p}'"]),
+    (win_report(blocks=[{"name": "{t}", "display": "TCP only", "program": "Any", "protocol": "TCP",
+                         "ports": ["27960"]}]), []),
+    (win_report(allow_inbound="False"), ["Set-NetFirewallProfile -Profile Private -AllowInboundRules True"]),
+    (win_report(allow_inbound="False", enabled="False"), []),  # firewall off: nothing is blocked
+    (win_report(rule=None, local_rules="False"), ["New-NetFirewallRule", None]),
+])
+def test_windows_network_problems(report, expected):
+    problems = wopkit.windows_network_problems(report, WIN_PROGRAM, 27960)
+    assert len(problems) == len(expected)
+    for (message, fix), want in zip(problems, expected):
+        assert message
+        assert fix == want if want is None else want in fix
+
+
+@pytest.mark.parametrize("answer,elevated_ok,fixed,expect_elevated,expect_text", [
+    ("", True, True, True, "Done."),                       # Enter means yes
+    ("n", True, True, False, "nothing changed"),
+    ("y", False, False, True, "nothing changed"),          # "No" on Windows' own permission question
+    ("y", True, False, True, "Not everything could be fixed"),
+])
+def test_windows_firewall_flow(monkeypatch, tmp_path, capsys, answer, elevated_ok, fixed, expect_elevated,
+                               expect_text):
+    monkeypatch.delenv("WOP_ASSUME_YES", raising=False)
+    monkeypatch.setattr(wopkit, "_tty_input", lambda prompt: answer)
+    program = str(tmp_path / "game" / wopkit.SERVER_BIN)
+    broken = win_report(rule=None, allow_inbound="False")
+    reports = [broken, win_report(rule={**KIT_RULE, "program": program}) if fixed else broken]
+    monkeypatch.setattr(wopkit, "windows_network_report", lambda port: reports.pop(0) if len(reports) > 1 else reports[0])
+    elevated = []
+    monkeypatch.setattr(wopkit, "run_elevated", lambda script: elevated.append(script) or elevated_ok)
+    inst = {}
+    wopkit._firewall_windows(inst, tmp_path / "game", 27960)
+    out = capsys.readouterr().out
+    assert "can't join your server yet" in out and expect_text in out
+    if expect_elevated:
+        assert len(elevated) == 1  # one permission question for every fix together
+        assert "New-NetFirewallRule" in elevated[0] and "-AllowInboundRules True" in elevated[0]
     else:
-        assert sudo_calls == []
-    assert inst.get("firewall") == (None if "disabled" in state else program)
+        assert elevated == []
+    assert inst.get("firewall") == (program if fixed and expect_elevated else None)
+
+
+def test_windows_firewall_all_good(monkeypatch, tmp_path, capsys):
+    program = str(tmp_path / "game" / wopkit.SERVER_BIN)
+    report = win_report(rule={**KIT_RULE, "program": program})
+    report["others"] = ["Norton Firewall"]
+    monkeypatch.setattr(wopkit, "windows_network_report", lambda port: report)
+    monkeypatch.setattr(wopkit, "run_elevated", lambda script: pytest.fail("asked for admin"))
+    inst = {}
+    wopkit._firewall_windows(inst, tmp_path / "game", 27960)
+    assert "OK." in capsys.readouterr().out and inst["firewall"] == program
+    wopkit._firewall_windows(inst, tmp_path / "game", 27960)
+    assert "Norton" not in capsys.readouterr().out  # the note about another firewall shows once
+
+
+def test_network_notes(monkeypatch, capsys):
+    from wop.actions import Game
+    monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: []))
+    wopkit.network_notes(27970)
+    out = capsys.readouterr().out
+    assert "connected to a network" in out and "/connect <address>:27970" in out
+    monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: ["192.168.1.20"]))
+    wopkit.network_notes(27961)
+    assert capsys.readouterr().out == ""
 
 
 def test_settings_pins():
