@@ -78,6 +78,7 @@ class Bridge:
             "ai.disconnect": self.ai_disconnect,
             "ai.open": self.ai_open,
             "ai.restart": self.ai_restart,
+            "ai.install": self.ai_install,
             "kit.check_update": self.check_update,
             "kit.update": self.update,
             "game.play": self.play,
@@ -357,6 +358,23 @@ class Bridge:
     def ai_open(self, app_id: str) -> dict:
         app = ai_apps.find(app_id)
         ai_apps.open_app(app, self.os)
+        return ai_apps.describe(app, self.os, wopkit.SETTINGS["mcp_name"])
+
+    def ai_install(self, app_id: str) -> dict:
+        """Download and install the app (only Claude Desktop can be), connect it to the server and open it,
+        so the user can sign in and start asking."""
+        app = ai_apps.find(app_id)
+        if not app.installable(self.os):
+            raise WopError(f"{app.name} can't be installed from here. You can get it at {app.download_url}.")
+        if not app.installed(self.os) and not wopkit.install_claude():
+            raise WopError(f"{app.name} couldn't be installed. Check your internet connection and try again, "
+                           f"or get it at {app.download_url}.")
+        ai_apps.connect(app, self.os, wopkit.SETTINGS["mcp_name"], wopkit.mcp_entry())
+        handle = wopkit.claude_app()
+        if handle and wopkit.claude_control():
+            if self.os.claude_running():   # the installer may have opened it before it was connected
+                self.os.quit_claude()
+            self.os.open_claude(handle)
         return ai_apps.describe(app, self.os, wopkit.SETTINGS["mcp_name"])
 
     def ai_restart(self, app_id: str) -> dict:

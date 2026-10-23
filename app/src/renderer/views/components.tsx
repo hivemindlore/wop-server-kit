@@ -19,7 +19,7 @@ export function Card(props: { title?: string; aside?: ReactNode; children: React
 export function Button(props: {
   children: ReactNode
   onClick?: () => void
-  kind?: 'primary' | 'secondary' | 'quiet' | 'danger'
+  kind?: 'primary' | 'secondary' | 'quiet' | 'danger' | 'play'
   disabled?: boolean
   type?: 'button' | 'submit'
   title?: string

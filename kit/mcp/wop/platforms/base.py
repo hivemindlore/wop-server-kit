@@ -199,12 +199,10 @@ class PlatformBehavior(ABC):
     def quit_claude(self) -> None:
         pass
 
-    def can_install_claude(self) -> bool:
-        """Whether install_claude has a package manager to use."""
-        return False
+    claude_asset: str | None = None   # which of kit.json's "claude_desktop" downloads installs it here
 
-    def install_claude(self) -> None:
-        """Install Claude Desktop with the OS's package manager."""
+    def install_claude(self, download: Path) -> None:
+        """Install Claude Desktop from its downloaded claude_asset, without asking anything; returns when done."""
 
     # ------------------------------------------------------------------ helpers
 

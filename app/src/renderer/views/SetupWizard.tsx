@@ -73,6 +73,48 @@ export function SetupWizard({ api, onFinished }: { api: WopApi; onFinished: () =
           </>
         )}
 
+        {view.step === 'claude' && (
+          <>
+            <h1>Want an AI to run your server?</h1>
+            <p>
+              Claude Desktop is an app where you chat with Claude, an AI. It's free to start; you sign in with a
+              Claude account. Once it's set up, you can just ask it things like{' '}
+              <em>"Switch to Capture The Lolly with 4 bots on each team"</em> or <em>"How do my friends join?"</em>{' '}
+              and it changes your server for you.
+            </p>
+            <p className="muted">You don't need it: everything also works from this app. You can get it later too.</p>
+            {view.claude.busy ? (
+              <>
+                <p>{view.claude.progress.title}</p>
+                <ProgressBar percent={view.claude.progress.percent} />
+                <p className="muted">{view.claude.progress.percentLabel}</p>
+              </>
+            ) : view.claude.installed ? (
+              <>
+                <Notice kind="ok">
+                  Claude Desktop is installed and knows your server. Sign in there, then ask it something. You'll
+                  also find it on the AI tab.
+                </Notice>
+                <Button kind="primary" onClick={() => vm.next()}>
+                  Continue
+                </Button>
+              </>
+            ) : (
+              <>
+                {view.claude.error && <Notice kind="error">{view.claude.error}</Notice>}
+                <div className="card-actions">
+                  <Button kind="primary" onClick={() => vm.installClaude()}>
+                    {view.claude.installLabel}
+                  </Button>
+                  <Button kind="quiet" onClick={() => vm.next()}>
+                    {view.claude.skipLabel}
+                  </Button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
         {view.step === 'network' && (
           <>
             <h1>Let the others in</h1>

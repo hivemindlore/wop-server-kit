@@ -40,6 +40,7 @@ class AiApp:
     launch_name: str | None = None                # the app's name in the Start menu / Applications / app menu
     terminal: list[str] | None = None             # or: a program that runs in a terminal window
     can_restart: bool = False                     # the kit can close and reopen it (so a new connection applies)
+    installable: Callable[[PlatformBehavior], bool] = lambda os_: False  # the kit can download and install it
 
     def available(self, os_: PlatformBehavior) -> bool:
         return not self.connectable or bool(self.config_paths(os_))
@@ -71,6 +72,7 @@ APPS: list[AiApp] = [
         installed=lambda os_: os_.claude_app() is not None,
         finish_hint="Quit Claude Desktop completely and open it again, then ask it something about your server.",
         launch_name="Claude", can_restart=True,
+        installable=lambda os_: bool(os_.claude_asset),
     ),
     AiApp(
         id="lm-studio", name="LM Studio",
@@ -235,4 +237,4 @@ def describe(app: AiApp, os_: PlatformBehavior, name: str) -> dict:
             "installed": app.installed(os_), "connected": is_connected(app, os_, name),
             "finish_hint": app.finish_hint, "advice": app.advice, "examples": app.examples,
             "openable": app.connectable and openable(app, os_), "running": running(app, os_),
-            "can_restart": app.can_restart}
+            "can_restart": app.can_restart, "installable": app.installable(os_)}

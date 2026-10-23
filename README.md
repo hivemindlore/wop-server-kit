@@ -18,6 +18,8 @@ The easiest way: one app that sets everything up and lets you run your server wi
    **Windows** `WoP-Server-Setup-….exe` · **Mac** `WoP-Server-….dmg` (`arm64` for M1/M2/M3/M4, `x64` for Intel) ·
    **Linux** `WoP-Server-….AppImage` (or the `.deb`).
 2. **Open it.** The first time, it asks for a name for your server and downloads World of PADMAN (1.2 GB).
+   Then it offers Claude Desktop, an AI app that can run the server for you when you ask it to: click
+   **Install Claude Desktop** and sign in when it opens, or **Skip** (you can still get it later on the AI tab).
    - Windows may say "*Windows protected your PC*": click **More info** → **Run anyway**.
    - Mac may say the app "*can't be opened*": right-click the app → **Open** → **Open**. On macOS 15 or newer:
      open **System Settings** → **Privacy & Security**, scroll down and click **Open Anyway**.
@@ -26,7 +28,7 @@ The easiest way: one app that sets everything up and lets you run your server wi
 
 | Tab | What you do there |
 |-----|-------------------|
-| **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Switch on **Friends anywhere can join** to let friends in other homes join over the internet too. Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. |
+| **Server** | Turn the server on and off, **Play World of PADMAN** yourself, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Switch on **Friends anywhere can join** to let friends in other homes join over the internet too. Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. |
 | **Logs** | Everything the server says, live, with a search box. |
 | **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
 | **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |
@@ -101,8 +103,8 @@ Macs; on an Apple-silicon Mac (M1/M2/M3/M4) the kit installs Apple's free *Roset
    curl -fsSL https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop-server.sh | bash
    ```
 3. Answer the questions. If your Mac's firewall is on, it asks "*Do you want to allow this?*" and then your Mac
-   password, so the players on your network can connect. If Claude Desktop isn't installed, the download page opens: install it, then go back
-   to Terminal and press Enter.
+   password, so the players on your network can connect. If Claude Desktop isn't installed, it offers to download
+   and install it for you.
 
 Your desktop then has a **World of PADMAN** folder with **Play World of PADMAN**, and a **WOP-server** folder inside
 it with **Start WoP Server**, **Stop WoP Server**, **WoP Server Help** and **WoP Server Troubleshooting**.

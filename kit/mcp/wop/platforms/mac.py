@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -180,8 +179,12 @@ class MacBehavior(PosixBehavior):
             if not self.claude_running():
                 return
 
-    def can_install_claude(self) -> bool:
-        return bool(shutil.which("brew"))
+    claude_asset = "mac"
 
-    def install_claude(self) -> None:
-        subprocess.run(["brew", "install", "--cask", "claude"], check=False)
+    def install_claude(self, download: Path) -> None:
+        # The download is a zip with Claude.app; ditto keeps the app's signature intact
+        apps = Path("/Applications")
+        if not os.access(apps, os.W_OK):
+            apps = Path.home() / "Applications"
+            apps.mkdir(exist_ok=True)
+        subprocess.run(["ditto", "-x", "-k", str(download), str(apps)], check=False)

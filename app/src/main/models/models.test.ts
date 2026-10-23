@@ -537,6 +537,26 @@ describe('AiModel: open and restart', () => {
     }
   })
 
+  it('installs Claude Desktop, which then needs no restart', async () => {
+    const bridge = new FakeBridge({ 'ai.install': () => card({ installed: true }) })
+    const model = new AiModel(bridge)
+    await model.install('claude-desktop')
+    expect(model.getState()).toMatchObject({ apps: [], busy: null, restartPending: [], notice: null })
+    expect(bridge.calls).toEqual([{ method: 'ai.install', params: { app_id: 'claude-desktop' } }])
+  })
+
+  it("shows why it couldn't be installed", async () => {
+    const model = new AiModel(new FakeBridge({
+      'ai.install': () => {
+        throw new Error("Claude Desktop couldn't be installed.")
+      }
+    }))
+    await model.install('claude-desktop')
+    expect(model.getState().notice).toEqual({
+      appId: 'claude-desktop', kind: 'error', text: "Claude Desktop couldn't be installed."
+    })
+  })
+
   it("shows why an app couldn't be opened", async () => {
     const model = new AiModel(new FakeBridge({
       'ai.open': () => {

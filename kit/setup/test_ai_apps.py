@@ -35,6 +35,9 @@ def test_claude_desktop_only_where_it_exists(home, monkeypatch):
     assert not app.available(for_name("linux"))
     mac = for_name("mac")
     assert app.available(mac)
+    assert app.installable(mac) and app.installable(for_name("windows")) and not app.installable(for_name("linux"))
+    assert not ai_apps.find("lm-studio").installable(mac)
+    assert ai_apps.describe(app, for_name("linux"), "wop-server")["installable"] is False
 
 
 def test_connect_lm_studio_keeps_other_entries(home):

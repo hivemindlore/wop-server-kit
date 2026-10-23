@@ -38,6 +38,11 @@ export class AiModel extends StateModel<AiState> {
     if (await this.change(appId, 'ai.restart', false)) this.setRestartPending(appId, false)
   }
 
+  /** Installed, connected and opened in one go, so it needs no restart afterwards. */
+  async install(appId: string): Promise<void> {
+    if (await this.change(appId, 'ai.install', false)) this.setRestartPending(appId, false)
+  }
+
   /** Runs one request for one app; returns its new card, or null if it failed (the card then shows why). */
   private async change(appId: string, method: string, showHint = true): Promise<AiApp | null> {
     if (this.getState().busy) return null

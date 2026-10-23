@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -411,9 +410,9 @@ class WindowsBehavior(PlatformBehavior):
             if not self.claude_running():
                 return
 
-    def can_install_claude(self) -> bool:
-        return bool(shutil.which("winget"))
+    claude_asset = "windows"
 
-    def install_claude(self) -> None:
-        subprocess.run(["winget", "install", "--id", "Anthropic.Claude", "-e", "--silent",
-                        "--accept-package-agreements", "--accept-source-agreements"], check=False)
+    def install_claude(self, download: Path) -> None:
+        # Claude's own installer, just for this user. It shows its progress and opens Claude when it's done.
+        # It takes no "quiet" option (an unknown option makes it stop right away).
+        subprocess.run([str(download)], check=False)

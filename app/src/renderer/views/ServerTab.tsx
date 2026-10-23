@@ -39,8 +39,8 @@ export function ServerTab({ api }: { api: WopApi }) {
         </div>
         {view.notice && <Notice kind={view.notice.kind}>{view.notice.text}</Notice>}
         <div className="power-actions">
-          <Button kind="quiet" onClick={() => vm.play()}>
-            Play on this computer
+          <Button kind="play" onClick={() => vm.play()}>
+            ▶ Play World of PADMAN
           </Button>
         </div>
       </Card>

@@ -475,17 +475,36 @@ def claude_running() -> bool:
     return claude_control() and OS.claude_running()
 
 
-def install_claude() -> None:
-    page = SETTINGS["claude_download_page"]
+def can_install_claude() -> bool:
+    return OS.claude_asset in SETTINGS["claude_desktop"]
+
+
+def install_claude() -> bool:
+    """Download Claude Desktop from Anthropic and install it. True if it's installed now. In a text window
+    it falls back to opening the download page."""
     if not claude_control():
-        return
-    if OS.can_install_claude():
-        say("   Installing Claude Desktop (this can take a minute)...")
-        OS.install_claude()
-        return
-    say(f"   Opening {page}. Download and install Claude Desktop, then come back here.")
-    OS.open_url(page)
-    _tty_input("   Press Enter when Claude Desktop is installed...")
+        return claude_app() is not None
+    if can_install_claude():
+        asset = SETTINGS["claude_desktop"][OS.claude_asset]
+        installer = ROOT / "downloads" / asset["file"]
+        step("Downloading Claude Desktop (from Anthropic, the makers of Claude)...")
+        try:
+            installer.unlink(missing_ok=True)   # always the newest version, never half of an old one
+            download(asset["url"], installer)
+            step("Installing Claude Desktop (this can take a minute)...")
+            OS.install_claude(installer)
+        except OSError as e:
+            say(f"   The download didn't work ({e}).")
+        finally:
+            installer.unlink(missing_ok=True)
+        if claude_app():
+            return True
+    if UI.terminal:
+        page = SETTINGS["claude_download_page"]
+        say(f"   Opening {page}. Download and install Claude Desktop, then come back here.")
+        OS.open_url(page)
+        _tty_input("   Press Enter when Claude Desktop is installed...")
+    return claude_app() is not None
 
 
 def mcp_entry() -> dict:
@@ -530,8 +549,7 @@ def ensure_claude(inst: dict, first_run: bool) -> None:
     if not app and not inst.get("claude_declined"):
         step("Claude Desktop lets you change the game by just asking (\"switch to Capture The Lolly\").")
         if yes("   Claude Desktop isn't installed. Install it now?"):
-            install_claude()
-            app = claude_app()
+            app = claude_app() if install_claude() else None
             if not app:
                 say("   Claude Desktop still isn't found. You can install it later from "
                     f"{SETTINGS['claude_download_page']} and run Start WoP Server again.")

@@ -212,6 +212,71 @@ def test_ai_open_and_restart(bridge, monkeypatch):
     assert "can't be restarted" in ask(bridge, "ai.restart", app_id="lm-studio")["error"]["message"]
 
 
+class ClaudeBehavior(FakeBehavior):
+    """A computer that can get Claude Desktop (like a Mac), with installing and opening it faked."""
+    claude_asset = "mac"
+
+    def __init__(self, config):
+        super().__init__()
+        self.config, self.app, self.calls = config, None, []
+
+    def claude_config_paths(self):
+        return [self.config]
+
+    def claude_app(self):
+        return self.app
+
+    def claude_running(self):
+        return False
+
+    def install_claude(self, download):
+        self.calls.append(("install", download.read_bytes()))
+        self.app = "Claude.app"
+
+    def open_claude(self, app):
+        self.calls.append(("open", app))
+
+
+@pytest.fixture
+def claude(bridge, tmp_path, monkeypatch):
+    os_ = ClaudeBehavior(tmp_path / "claude_desktop_config.json")
+    monkeypatch.setattr(wopkit, "OS", os_)
+    bridge.os = os_
+    monkeypatch.delenv("WOP_NO_CLAUDE_LAUNCH", raising=False)
+    monkeypatch.delenv("WOP_CLAUDE_APP", raising=False)
+    monkeypatch.delenv("WOP_CLAUDE_CONFIG", raising=False)
+    return os_
+
+
+def fake_download(dest_bytes=b"the app"):
+    def download(url, dest, expected_size=None, progress=None):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(dest_bytes)
+    return download
+
+
+def test_ai_install_gets_claude_desktop_connects_and_opens_it(bridge, root, claude, monkeypatch):
+    monkeypatch.setattr(wopkit.downloads, "download", fake_download())
+    card = ask(bridge, "ai.install", app_id="claude-desktop")["result"]
+    assert card["installed"] and card["connected"] and card["installable"]
+    assert claude.calls == [("install", b"the app"), ("open", "Claude.app")]
+    assert "wop-server" in json.loads(claude.config.read_text())["mcpServers"]
+    assert not (root / "downloads" / "Claude.zip").exists()   # the installer isn't kept
+
+
+def test_ai_install_says_when_it_did_not_work(bridge, claude, monkeypatch):
+    def offline(url, dest, expected_size=None, progress=None):
+        raise OSError("no internet")
+    monkeypatch.setattr(wopkit.downloads, "download", offline)
+    message = ask(bridge, "ai.install", app_id="claude-desktop")["error"]["message"]
+    assert "couldn't be installed" in message and "https://claude.ai/download" in message
+    assert claude.calls == [] and not claude.config.exists()
+
+
+def test_only_claude_desktop_can_be_installed(bridge):
+    assert "can't be installed" in ask(bridge, "ai.install", app_id="lm-studio")["error"]["message"]
+
+
 def test_setup_messages_become_events(bridge):
     wopkit.step("Downloading World of PADMAN")
     wopkit.say("   Unpacking...")

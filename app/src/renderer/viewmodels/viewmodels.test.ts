@@ -454,7 +454,9 @@ describe('SetupViewModel', () => {
     api.push('app', appState({ phase: 'setting-up', setup: { step: 'Downloading', messages: ['a'], percent: 42, error: null } }))
     expect(vm.getSnapshot().install).toMatchObject({ title: 'Downloading', percentLabel: '42%' })
     api.push('app', appState({ phase: 'ready' }))
-    expect(vm.getSnapshot().step).toBe('network')
+    await settle()
+    expect(vm.getSnapshot().step).toBe('network')   // no Claude Desktop on this computer: no Claude step
+    expect(vm.getSnapshot()).toMatchObject({ stepNumber: 4, stepCount: 5 })
     expect(api.called()).toContain('network.check')
     expect(vm.getSnapshot().networkNext.label).toBe('Skip for now')
     vm.next()
@@ -473,6 +475,76 @@ describe('SetupViewModel', () => {
     vm.install()
     api.push('app', appState({ phase: 'needs-setup', setup: { step: '', messages: [], percent: null, error: 'No internet.' } }))
     expect(vm.getSnapshot().install).toMatchObject({ title: 'That didn\'t work', error: 'No internet.' })
+  })
+})
+
+describe('SetupViewModel: Claude Desktop', () => {
+  const claude = (patch: Partial<AiApp> = {}): AiApp => ({
+    id: 'claude-desktop', name: 'Claude Desktop', blurb: '', free: false, download_url: 'https://claude.ai/download',
+    connectable: true, available: true, installed: false, connected: false, finish_hint: '', advice: '', examples: [],
+    openable: false, running: false, can_restart: true, installable: true, ...patch
+  })
+
+  async function installed(app: AiApp | null) {
+    const api = new FakeApi()
+    api.states.app = appState({ phase: 'needs-setup' })
+    api.states.ai = { apps: app ? [app] : [], busy: null, restartPending: [], notice: null }
+    const vm = new SetupViewModel(api, () => {})
+    await settle()
+    vm.next()
+    vm.install()
+    api.push('app', appState({ phase: 'setting-up' }))
+    api.push('app', appState({ phase: 'ready' }))
+    await settle()
+    return { api, vm }
+  }
+
+  it('offers Claude Desktop after the game is installed, and can skip it', async () => {
+    const { api, vm } = await installed(claude())
+    expect(api.called()).toContain('ai.refresh')
+    expect(vm.getSnapshot()).toMatchObject({ step: 'claude', stepNumber: 4, stepCount: 6 })
+    expect(vm.getSnapshot().claude).toMatchObject({ installed: false, busy: false, installLabel: 'Install Claude Desktop' })
+    expect(api.called()).not.toContain('network.check')
+    vm.next()
+    expect(vm.getSnapshot().step).toBe('network')
+    expect(api.called()).toContain('network.check')
+    expect(api.called()).not.toContain('ai.install')
+  })
+
+  it('installs it, shows the progress and then that it is ready', async () => {
+    const { api, vm } = await installed(claude())
+    vm.installClaude()
+    expect(api.calls.at(-1)).toEqual({ model: 'ai', command: 'install', args: ['claude-desktop'] })
+    api.push('app', appState({ setup: { step: 'Downloading Claude Desktop', messages: [], percent: 30, error: null } }))
+    api.push('ai', { apps: [claude()], busy: 'claude-desktop', restartPending: [], notice: null })
+    expect(vm.getSnapshot().claude).toMatchObject({ busy: true, progress: { title: 'Downloading Claude Desktop', percentLabel: '30%' } })
+    api.push('ai', { apps: [claude({ installed: true, connected: true })], busy: null, restartPending: [], notice: null })
+    expect(vm.getSnapshot().claude).toMatchObject({ busy: false, installed: true })
+    expect(vm.getSnapshot().step).toBe('claude')
+    vm.next()
+    expect(vm.getSnapshot().step).toBe('network')
+  })
+
+  it("shows why it couldn't be installed, with a way to go on", async () => {
+    const { api, vm } = await installed(claude())
+    api.push('ai', {
+      apps: [claude()], busy: null, restartPending: [],
+      notice: { appId: 'claude-desktop', kind: 'error', text: "Claude Desktop couldn't be installed." }
+    })
+    expect(vm.getSnapshot().claude).toMatchObject({
+      error: "Claude Desktop couldn't be installed.", installLabel: 'Try again', skipLabel: 'Continue without it'
+    })
+  })
+
+  it('opens the download page where it can only be downloaded by hand', async () => {
+    const { api, vm } = await installed(claude({ installable: false }))
+    vm.installClaude()
+    expect(api.calls.at(-1)).toEqual({ model: 'app', command: 'openUrl', args: ['https://claude.ai/download'] })
+  })
+
+  it('skips the step when Claude Desktop is already installed', async () => {
+    const { vm } = await installed(claude({ installed: true }))
+    expect(vm.getSnapshot()).toMatchObject({ step: 'network', stepCount: 5 })
   })
 })
 
@@ -522,7 +594,7 @@ describe('AiViewModel', () => {
   const app = (patch: Partial<AiApp>): AiApp => ({
     id: 'x', name: 'X', blurb: '', free: false, download_url: 'https://x', connectable: true, available: true,
     installed: false, connected: false, finish_hint: '', advice: '', examples: ['How do my friends join?'],
-    openable: false, running: false, can_restart: false, ...patch
+    openable: false, running: false, can_restart: false, installable: false, ...patch
   })
 
   it('orders the cards and gives each the right button', async () => {
@@ -569,7 +641,7 @@ describe('AiViewModel: opening the app', () => {
   const app = (patch: Partial<AiApp>): AiApp => ({
     id: 'claude-desktop', name: 'Claude Desktop', blurb: '', free: false, download_url: 'https://x',
     connectable: true, available: true, installed: true, connected: true, finish_hint: 'Quit and reopen it.',
-    advice: '', examples: [], openable: true, running: false, can_restart: true, ...patch
+    advice: '', examples: [], openable: true, running: false, can_restart: true, installable: true, ...patch
   })
 
   async function cardFor(patch: Partial<AiApp>, restartPending: string[] = []) {

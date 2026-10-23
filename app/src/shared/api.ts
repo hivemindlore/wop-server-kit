@@ -124,6 +124,8 @@ export interface AiApp {
   /** Open right now; only known for apps the kit can restart. */
   running: boolean
   can_restart: boolean
+  /** The kit can download and install it (Claude Desktop on Windows and Mac). */
+  installable: boolean
 }
 
 export interface UpdateCheck {
@@ -247,6 +249,8 @@ export interface ModelCommands {
     disconnect(appId: string): Promise<void>
     open(appId: string): Promise<void>
     restart(appId: string): Promise<void>
+    /** Downloads and installs the app, connects it to the server and opens it. */
+    install(appId: string): Promise<void>
   }
   logs: {
     history(): Promise<LogLine[]>
