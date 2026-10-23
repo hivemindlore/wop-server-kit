@@ -18,7 +18,8 @@ The easiest way: one app that sets everything up and lets you run your server wi
    **Linux** `WoP-Server-….AppImage` (or the `.deb`).
 2. **Open it.** The first time, it asks for a name for your server and downloads World of PADMAN (1.2 GB).
    - Windows may say "*Windows protected your PC*": click **More info** → **Run anyway**.
-   - Mac may say the app "*can't be opened*": right-click the app → **Open** → **Open**.
+   - Mac may say the app "*can't be opened*": right-click the app → **Open** → **Open**. On macOS 15 or newer:
+     open **System Settings** → **Privacy & Security**, scroll down and click **Open Anyway**.
    - Linux: right-click the `.AppImage` → Properties → allow it to run as a program, then double-click it.
 3. **That's it.** The app has four tabs:
 

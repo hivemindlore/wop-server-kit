@@ -4,7 +4,10 @@
   "version": "2.0.0",
   "description": "Run and manage your own World of PADMAN server for everyone on your home network.",
   "license": "MIT",
-  "author": "WoP Server Kit",
+  "author": {
+    "name": "WoP Server Kit",
+    "email": "hivemindlore@users.noreply.github.com"
+  },
   "private": true,
   "main": "out/main/index.js",
   "scripts": {
@@ -31,5 +34,6 @@
     "typescript": "5.9.3",
     "vite": "7.3.7",
     "vitest": "4.1.12"
-  }
+  },
+  "homepage": "https://github.com/hivemindlore/wop-server-kit"
 }

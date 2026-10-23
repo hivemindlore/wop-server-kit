@@ -1,4 +1,4 @@
-appId: net.worldofpadman.serverkit
+appId: io.github.hivemindlore.wopserverkit
 productName: WoP Server
 directories:
   output: dist
@@ -10,10 +10,8 @@ extraResources:
   - from: resources/kit
     to: kit
     filter: ["**/*", "!**/__pycache__/**", "!**/tests/**", "!**/test_*.py"]
-publish:
-  provider: github
-  owner: hivemindlore
-  repo: wop-server-kit
+# Installers are attached to a draft GitHub release by .github/workflows/app.yml (tags app-v*)
+publish: null
 
 win:
   target: nsis
@@ -21,6 +19,7 @@ win:
     - from: resources/uv/win-x64
       to: uv/win-x64
 nsis:
+  artifactName: WoP-Server-Setup-${version}.${ext}
   oneClick: true
   perMachine: false          # no admin rights needed to install
   createDesktopShortcut: always
@@ -31,6 +30,9 @@ mac:
     - target: dmg
       arch: [x64, arm64]
   category: public.app-category.games
+  artifactName: WoP-Server-${version}-${arch}.${ext}
+  # Not signed with an Apple Developer ID yet; an ad-hoc signature is the least an Apple-silicon Mac runs
+  identity: "-"
   extraResources:
     - from: resources/uv/mac-arm64
       to: uv/mac-arm64
@@ -40,7 +42,8 @@ mac:
 linux:
   target: [AppImage, deb]
   category: Game
-  maintainer: WoP Server Kit
+  artifactName: WoP-Server-${version}-${arch}.${ext}
+  maintainer: WoP Server Kit <hivemindlore@users.noreply.github.com>
   extraResources:
     - from: resources/uv/linux-x64
       to: uv/linux-x64
