@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config, launcher
+from . import config, launcher, maploop
 from .catalog import (
     BOTS, GAMEMODES, MAP_GROUP_TITLES, MAP_GROUPS, Bot, WopError, check_map_fits,
     resolve_bot, resolve_gamemode, resolve_map, resolve_team,
@@ -262,11 +262,13 @@ class Game:
     # ------------------------------------------------------------------ gameplay
 
     def set_game(self, gamemode, map=None, weapons=None, red=None, blue=None, bots=None, skill=3,
-                 pointlimit=None, timelimit=None, keep_current_bots=False, lps_lives=None, no_bots=False) -> dict:
+                 pointlimit=None, timelimit=None, keep_current_bots=False, lps_lives=None, no_bots=False,
+                 maps=None) -> dict:
+        """maps: several maps that play one after another, then start over (instead of one map)."""
         state = self.state()
         mode = resolve_gamemode(gamemode)
-        map_name = resolve_map(map, mode) if map else mode.default_map
-        check_map_fits(map_name, mode)
+        loop = maploop.clean_maps(maps if maps else [map or mode.default_map], mode)
+        map_name = loop[0]
         instapad = _weapons(weapons) if weapons is not None else state.instapad
         skill = _skill(skill)
 
@@ -299,14 +301,14 @@ class Game:
                     f"set timelimit {int(timelimit if timelimit is not None else mode.timelimit)}"]
         if lps_lives is not None:
             commands.append(f"set g_LPS_startlives {int(lps_lives)}")
-        commands.append(f"map {map_name}")
+        commands += maploop.define(loop) + [f"map {map_name}"] + maploop.start(loop)
         commands += [self._addbot(lb) for lb in lineup]
         problems = self._run(commands)
 
         notes = []
         if mode.team and state.humans:
             notes.append("Humans pick their own team again: /team red or /team blue (or the Esc menu).")
-        return self._result(f"Now playing {mode.name} on {map_name} with "
+        return self._result(f"Now playing {mode.name} on {maploop.describe(loop)} with "
                             f"{'InstaPad' if instapad else 'regular weapons'} and {len(lineup)} bots.",
                             problems, wait=2.0, notes=notes)
 
@@ -315,15 +317,26 @@ class Game:
         mode = state.mode or resolve_gamemode(state.gametype)
         map_name = resolve_map(map, mode)
         check_map_fits(map_name, mode)
-        problems = self._run([f"map {map_name}"])
+        problems = self._run(self._keep_loop([f"map {map_name}"]))
         return self._result(f"Changed map to {map_name} ({mode.name}); the bots stayed.", problems, wait=2.0)
 
     def set_weapons(self, weapons: str) -> dict:
         instapad = _weapons(weapons)
         state = self.state()
-        problems = self._run([f"set g_instaPad {int(instapad)}", f"map {state.map}"])
+        problems = self._run(self._keep_loop([f"set g_instaPad {int(instapad)}", f"map {state.map}"]))
         return self._result(f"Weapons set to {'InstaPad' if instapad else 'regular'}; "
                             f"{state.map} was reloaded so it applies.", problems, wait=2.0)
+
+    def _keep_loop(self, commands: list[str]) -> list[str]:
+        """Loading a map ends a map loop (the engine resets nextmap); point nextmap back where it was."""
+        nextmap = self._cvar("nextmap") or ""
+        if nextmap.startswith(f"vstr {maploop.STEP}"):
+            return commands + [f"set nextmap {nextmap}"]
+        return commands
+
+    def map_rotation(self) -> list[str]:
+        """The maps of the running loop (one map when there's no loop); [] when the server can't tell."""
+        return maploop.parse(self._cvar(maploop.LIST))
 
     def set_limits(self, pointlimit=None, timelimit=None) -> dict:
         if pointlimit is None and timelimit is None:

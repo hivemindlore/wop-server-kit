@@ -22,6 +22,11 @@ function resourcesDir(): string {
   return app.isPackaged ? process.resourcesPath : join(__dirname, '..', '..', 'resources')
 }
 
+/** World of PADMAN's logo for the window (the installers get theirs from build/). */
+function iconPath(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(__dirname, '..', '..', 'build', 'icon.png')
+}
+
 /** Where the app's releases are (the same repo the kit updates itself from). */
 function releaseRepo(): string {
   try {
@@ -57,7 +62,8 @@ function openWindow(models: Models): BrowserWindow {
     minWidth: 820,
     minHeight: 600,
     title: 'WoP Server',
-    backgroundColor: '#f6f4ef',
+    icon: iconPath(),
+    backgroundColor: '#f4f5f7',
     autoHideMenuBar: true,
     show: false,
     webPreferences: {

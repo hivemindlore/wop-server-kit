@@ -5,9 +5,10 @@ from wop.catalog import WopError
 
 def test_set_game_default_tffa(game, rcon):
     game.set_game("team free for all", "pad garden")
-    assert rcon.sent[:7] == ["kick allbots", "set bot_minplayers 0", "set g_gametype 6", "set g_instaPad 0",
-                             "set pointlimit 64", "set timelimit 16", "map wop_padgarden"]
-    assert rcon.sent[7:] == [
+    assert rcon.sent[:8] == ["kick allbots", "set bot_minplayers 0", "set g_gametype 6", "set g_instaPad 0",
+                             "set pointlimit 64", "set timelimit 16", 'set wop_maplist "wop_padgarden"',
+                             "map wop_padgarden"]
+    assert rcon.sent[8:] == [
         "addbot PADMAN 3 red", "addbot PadGirl 3 red", "addbot PadLilly 3 red", "addbot PaddyBell 3 red",
         "addbot Pelvis 3 red", "addbot PiratePad 3 red",
         "addbot FatPad 3 blue", 'addbot FatPad 3 blue 0 "FatPad2"', "addbot FATTY 3 blue",
@@ -61,14 +62,14 @@ def test_set_game_slot_limit(game, rcon):
 
 def test_change_map_keeps_mode(game, rcon):
     game.change_map("pad kitchen")
-    assert rcon.sent == ["map wop_padkitchen"]
+    assert rcon.sent == ["nextmap", "map wop_padkitchen"]   # no map loop running: nothing to keep
     with pytest.raises(WopError, match="only work in Capture The Lolly"):
         game.change_map("wop_fridgeCTL")
 
 
 def test_set_weapons_reloads_map(game, rcon):
     game.set_weapons("instapad")
-    assert rcon.sent == ["set g_instaPad 1", "map wop_padgarden"]
+    assert rcon.sent == ["nextmap", "set g_instaPad 1", "map wop_padgarden"]
 
 
 def test_add_bots_balances_and_names(game, rcon):
@@ -148,3 +149,57 @@ def test_spawn_protection_on_and_off(rcon, monkeypatch):
     game.set_spawn_protection(True)
     assert rcon.sent == ["set g_spawnProtect 0", "set g_spawnProtect 3"]
     assert "off" in result["result"] and "It only matters" not in result["result"]
+
+
+class LoopRcon:
+    """A server where a map loop runs (it answers the nextmap and wop_maplist questions)."""
+
+    def __init__(self, rcon, nextmap="vstr wop_rot2", maplist="wop_padgarden wop_padkitchen wop_padship"):
+        self.rcon, self.values = rcon, {"nextmap": nextmap, "wop_maplist": maplist}
+
+    def command(self, cmd, timeout=2.0, quiet=0.3):
+        if cmd in self.values:
+            return f'"{cmd}" is:"{self.values[cmd]}^7" default:""'
+        return self.rcon.command(cmd, timeout, quiet)
+
+    def is_running(self, retry=False):
+        return True
+
+
+def test_set_game_with_a_map_loop(game, rcon):
+    result = game.set_game("ctl", maps=["padbase", "journey", "wop_padbaseCTL", "fridge"], bots=["padman"])
+    sent = rcon.sent
+    first = sent.index("map wop_padbaseCTL")
+    assert sent[first - 4:first] == [
+        'set wop_rot0 "map wop_padbaseCTL; set nextmap vstr wop_rot1"',
+        'set wop_rot1 "map wop_journeyCTL; set nextmap vstr wop_rot2"',
+        'set wop_rot2 "map wop_fridgeCTL; set nextmap vstr wop_rot0"',
+        'set wop_maplist "wop_padbaseCTL wop_journeyCTL wop_fridgeCTL"',
+    ]
+    assert sent[first + 1] == "set nextmap vstr wop_rot1"           # after the map: loading resets it
+    assert sent[first + 2].startswith("addbot PADMAN")
+    assert "padbaseCTL, journeyCTL and fridgeCTL in a loop" in result["result"]
+
+
+def test_map_loop_maps_must_fit_the_mode(game):
+    with pytest.raises(WopError, match="Lolly modes need a CTL map"):
+        game.set_game("ctl", maps=["padbase", "padgarden"])
+    with pytest.raises(WopError, match="up to 16"):
+        from wop.catalog import GAMEMODES
+        game.set_game("ffa", maps=[m for m in GAMEMODES[0].maps][:17])
+
+
+def test_reloading_a_map_keeps_the_loop(game, rcon):
+    game.rcon = LoopRcon(rcon)
+    game.set_weapons("instapad")
+    assert rcon.sent == ["set g_instaPad 1", "map wop_padgarden", "set nextmap vstr wop_rot2"]
+    rcon.sent.clear()
+    game.change_map("pad kitchen")
+    assert rcon.sent == ["map wop_padkitchen", "set nextmap vstr wop_rot2"]
+
+
+def test_map_rotation(game, rcon):
+    game.rcon = LoopRcon(rcon)
+    assert game.map_rotation() == ["wop_padgarden", "wop_padkitchen", "wop_padship"]
+    game.rcon = LoopRcon(rcon, maplist="nonsense")
+    assert game.map_rotation() == []

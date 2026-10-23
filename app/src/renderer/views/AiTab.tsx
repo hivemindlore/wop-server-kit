@@ -2,25 +2,25 @@ import { useMemo } from 'react'
 import type { WopApi } from '@shared/api'
 import { AiViewModel } from '../viewmodels/AiViewModel'
 import { useActive, useViewModel } from '../viewmodels/ViewModel'
-import { Button, Card, Notice, Spinner } from './components'
+import { Button, Notice, PageHeader, Section, Spinner } from './components'
 
 export function AiTab({ api }: { api: WopApi }) {
   const vm = useActive(useMemo(() => new AiViewModel(api), [api]))
   const view = useViewModel(vm)
 
   return (
-    <div className="ai">
-      <p className="intro">{view.intro}</p>
+    <div className="page page-wide ai">
+      <PageHeader title="AI" description={view.intro} />
       {view.loading && <Spinner />}
       <div className="ai-cards">
         {view.cards.map((card) => (
-          <Card
+          <Section
             key={card.id}
             title={card.name}
+            description={card.price}
             className={`ai-card ai-${card.status}`}
             aside={card.statusLabel && <span className={`badge badge-${card.status}`}>{card.statusLabel}</span>}
           >
-            <p className="muted small">{card.price}</p>
             <p>{card.blurb}</p>
             {card.advice && <p className="advice">{card.advice}</p>}
             {card.examples.length > 0 && (
@@ -34,7 +34,7 @@ export function AiTab({ api }: { api: WopApi }) {
               </div>
             )}
             {card.notice && <Notice kind={card.notice.kind}>{card.notice.text}</Notice>}
-            <div className="card-actions">
+            <div className="button-row">
               {card.action && (
                 <Button
                   kind={card.action.kind === 'connect' ? 'primary' : 'secondary'}
@@ -59,7 +59,7 @@ export function AiTab({ api }: { api: WopApi }) {
                 </Button>
               )}
             </div>
-          </Card>
+          </Section>
         ))}
       </div>
       <p className="muted small">

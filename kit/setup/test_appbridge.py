@@ -392,11 +392,25 @@ def test_game_set_passes_the_choice_on(bridge, root, monkeypatch):
                 "state": {}}
 
     monkeypatch.setattr(bridge.game, "set_game", set_game)
-    result = ask(bridge, "game.set", gamemode="ctl", map="wop_padbaseCTL", red=["PADMAN"], blue=["PadKing"],
+    loop = ["wop_padbaseCTL", "wop_journeyCTL"]
+    result = ask(bridge, "game.set", gamemode="ctl", maps=loop, red=["PADMAN"], blue=["PadKing"],
                  skill=4, pointlimit=5, timelimit=10)["result"]
     assert result == {"result": "Now playing Capture The Lolly on wop_padbaseCTL with regular weapons and 2 bots.",
                       "problems": []}
-    assert calls[0] == ("ctl", {"map": "wop_padbaseCTL", "red": ["PADMAN"], "blue": ["PadKing"], "bots": None,
+    assert calls[0] == ("ctl", {"maps": loop, "red": ["PADMAN"], "blue": ["PadKing"], "bots": None,
                                 "skill": 4, "pointlimit": 5, "timelimit": 10, "no_bots": False})
     ask(bridge, "game.set", gamemode="ffa", bots=[])
     assert calls[1][1]["no_bots"] is True
+
+
+def test_game_rotation_and_saving_it(bridge, root, monkeypatch):
+    install_game(root)
+    assert ask(bridge, "game.rotation")["result"] == {"maps": []}          # server off
+    bridge.game.rcon.running = True
+    monkeypatch.setattr(bridge.game, "map_rotation", lambda: ["wop_padkitchen", "wop_padship"])
+    assert ask(bridge, "game.rotation")["result"] == {"maps": ["wop_padkitchen", "wop_padship"]}
+    saved = []
+    monkeypatch.setattr(appbridge, "save_as_startup", lambda state, maps=None: saved.append(maps))
+    monkeypatch.setattr(bridge.game, "state", lambda: "state")
+    assert "starts with this game" in ask(bridge, "game.save_as_startup")["result"]["result"]
+    assert saved == [["wop_padkitchen", "wop_padship"]]

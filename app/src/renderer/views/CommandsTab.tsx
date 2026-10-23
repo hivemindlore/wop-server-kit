@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { WopApi } from '@shared/api'
 import { CommandsViewModel } from '../viewmodels/CommandsViewModel'
 import { useActive, useViewModel } from '../viewmodels/ViewModel'
-import { Button, Card, Notice } from './components'
+import { Button, Notice, PageHeader, Section } from './components'
 
 export function CommandsTab({ api }: { api: WopApi }) {
   const vm = useActive(useMemo(() => new CommandsViewModel(api), [api]))
@@ -14,10 +14,12 @@ export function CommandsTab({ api }: { api: WopApi }) {
   }, [view.entries])
 
   return (
-    <div className="grid commands">
-      <Card
+    <div className="page commands">
+      <PageHeader title="Commands" description="Give the server a command and see its answer. For people who like to tinker." />
+      <Section
+        icon="terminal"
         title="Server console"
-        className="span-2"
+        description="Type a command and press Enter. Arrow up brings back earlier commands."
         aside={
           view.entries.length > 0 && (
             <Button kind="quiet" onClick={() => vm.clear()}>
@@ -59,9 +61,9 @@ export function CommandsTab({ api }: { api: WopApi }) {
             {view.busy ? 'Running...' : 'Run'}
           </Button>
         </form>
-      </Card>
+      </Section>
 
-      <Card title="Examples" className="span-2">
+      <Section icon="list" title="Examples" description="Click one to put it in the box above.">
         <ul className="examples">
           {view.examples.map((example) => (
             <li key={example.command}>
@@ -72,8 +74,8 @@ export function CommandsTab({ api }: { api: WopApi }) {
             </li>
           ))}
         </ul>
-        <p className="muted">Tip: the AI tab lets you do all of this by just asking an AI.</p>
-      </Card>
+        <p className="muted small">Tip: the AI tab lets you do all of this by just asking an AI.</p>
+      </Section>
     </div>
   )
 }

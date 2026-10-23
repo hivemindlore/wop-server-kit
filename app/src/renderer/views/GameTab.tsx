@@ -1,77 +1,125 @@
 import { useMemo } from 'react'
 import type { WopApi } from '@shared/api'
-import { GameViewModel } from '../viewmodels/GameViewModel'
+import { GameViewModel, type Limit, type LimitView } from '../viewmodels/GameViewModel'
 import { useActive, useViewModel } from '../viewmodels/ViewModel'
-import { Button, Card, Notice, Spinner } from './components'
+import { Button, Icon, Notice, PageHeader, Section, SettingRow, Spinner, Step, Switch } from './components'
+
+function LimitField(props: { label: string; which: Limit; view: LimitView; vm: GameViewModel }) {
+  const { which, view, vm } = props
+  return (
+    <div className="limit">
+      <span className="setting-label">{props.label}</span>
+      <div className="stepper">
+        <button
+          className="stepper-button"
+          aria-label={`Fewer ${which}`}
+          disabled={!view.canLower}
+          onClick={() => vm.stepLimit(which, -1)}
+        >
+          <Icon name="minus" size={16} />
+        </button>
+        <input
+          inputMode="numeric"
+          aria-label={props.label}
+          value={view.text}
+          onChange={(e) => vm.typeLimit(which, e.target.value)}
+          onBlur={() => vm.commitLimit(which)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') vm.commitLimit(which)
+            if (e.key === 'ArrowUp') (e.preventDefault(), vm.stepLimit(which, 1))
+            if (e.key === 'ArrowDown') (e.preventDefault(), vm.stepLimit(which, -1))
+          }}
+        />
+        <button
+          className="stepper-button"
+          aria-label={`More ${which}`}
+          disabled={!view.canRaise}
+          onClick={() => vm.stepLimit(which, 1)}
+        >
+          <Icon name="plus" size={16} />
+        </button>
+      </div>
+      <span className="muted small limit-note">{view.note}</span>
+    </div>
+  )
+}
 
 export function GameTab({ api }: { api: WopApi }) {
   const vm = useActive(useMemo(() => new GameViewModel(api), [api]))
   const view = useViewModel(vm)
-  const { draft } = view
+  const { draft, footer } = view
 
   return (
-    <div className="grid">
-      {view.notice && (
-        <div className="span-2">
-          <Notice kind={view.notice.kind}>{view.notice.text}</Notice>
-        </div>
-      )}
+    <div className="page page-with-footer">
+      <PageHeader title="Game" description="See what's playing, talk to the players, and change the game." />
 
-      <Card title="Now playing" className="span-2">
-        {view.serverOn === null && (
-          <p className="muted">
-            <Spinner /> Looking for your server...
-          </p>
-        )}
-        {view.serverOn === false && (
-          <div className="game-off">
-            <p>Your server is off. Start it to play and to change the game.</p>
-            <Button kind="primary" disabled={view.startingServer} onClick={() => vm.startServer()}>
-              {view.startingServer ? 'Starting...' : 'Start the server'}
-            </Button>
-          </div>
-        )}
-        {view.serverOn && view.nowPlaying && (
-          <>
-            <p className="now-playing">
-              <strong>{view.nowPlaying.mode}</strong> on <strong>{view.nowPlaying.map}</strong>
-            </p>
+      {view.notice && <Notice kind={view.notice.kind}>{view.notice.text}</Notice>}
+
+      <div className="two-col">
+        <Section icon="gamepad" title="Now playing">
+          {view.serverOn === null && (
             <p className="muted">
-              {view.nowPlaying.weapons} · {view.nowPlaying.limits} · {view.nowPlaying.people}
+              <Spinner /> Looking for your server...
             </p>
-            <div className="now-actions">
-              <form
-                className="inline-form message-form"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  vm.sendMessage()
-                }}
-              >
-                <input
-                  value={view.message}
-                  placeholder="A message to everyone in the game"
-                  onChange={(e) => vm.setMessage(e.target.value)}
-                />
-                <Button kind="secondary" type="submit" disabled={!view.canSend}>
-                  {view.busy === 'sending' ? 'Sending...' : 'Send'}
-                </Button>
-              </form>
-              <div className="card-actions">
-                <Button kind="secondary" disabled={view.busy !== null} onClick={() => vm.restartMatch()}>
-                  {view.busy === 'restarting' ? 'Restarting...' : 'Restart the match'}
-                </Button>
-                <Button kind="quiet" disabled={view.busy !== null} onClick={() => vm.saveAsStartup()}>
-                  {view.busy === 'saving' ? 'Saving...' : 'Keep this as the game the server starts with'}
+          )}
+          {view.serverOn === false && (
+            <div className="stack">
+              <p className="muted">Your server is off. Start it to play and to change the game.</p>
+              <div className="button-row">
+                <Button kind="primary" icon="power" disabled={view.startingServer} onClick={() => vm.startServer()}>
+                  {view.startingServer ? 'Starting...' : 'Start the server'}
                 </Button>
               </div>
             </div>
-          </>
-        )}
-      </Card>
+          )}
+          {view.serverOn && view.nowPlaying && (
+            <div className="now-playing">
+              <p className="now-playing-title">
+                {view.nowPlaying.mode} <span className="muted">on</span> {view.nowPlaying.map}
+              </p>
+              <dl className="facts">
+                <dt>Weapons</dt>
+                <dd>{view.nowPlaying.weapons}</dd>
+                <dt>Ends at</dt>
+                <dd>{view.nowPlaying.limits}</dd>
+                <dt>On the server</dt>
+                <dd>{view.nowPlaying.people}</dd>
+              </dl>
+              {view.nowPlaying.loop && <p className="muted small">{view.nowPlaying.loop}</p>}
+            </div>
+          )}
+        </Section>
+
+        <Section icon="message" title="Message to the server" description="Everyone playing sees it on their screen.">
+          <form
+            className="message-form"
+            onSubmit={(e) => {
+              e.preventDefault()
+              vm.sendMessage()
+            }}
+          >
+            <textarea
+              rows={3}
+              value={view.message}
+              placeholder={view.serverOn ? 'For example: Dinner in 5 minutes!' : 'Start the server to send a message'}
+              disabled={!view.serverOn}
+              onChange={(e) => vm.setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) (e.preventDefault(), vm.sendMessage())
+              }}
+            />
+            <div className="button-row">
+              <Button kind="primary" icon="send" type="submit" disabled={!view.canSend}>
+                {view.sendLabel}
+              </Button>
+            </div>
+          </form>
+        </Section>
+      </div>
 
       {view.weapons && (
-        <Card title="Weapons" className="span-2">
-          <div className="setting">
+        <Section icon="target" title="Weapons" description={view.weapons.note}>
+          <SettingRow label="Weapons" description="All weapons, or InstaPad where one hit wins.">
             <div className="choice" role="radiogroup" aria-label="Weapons">
               {view.weapons.options.map((option) => (
                 <button
@@ -86,84 +134,88 @@ export function GameTab({ api }: { api: WopApi }) {
                 </button>
               ))}
             </div>
-            <span className="muted small">{view.weapons.note}</span>
-          </div>
+          </SettingRow>
           {view.spawnProtection && (
-            <div className="protection-row">
-              <button
-                className={`switch switch-small ${view.spawnProtection.on ? 'switch-on' : ''}`}
-                role="switch"
-                aria-checked={view.spawnProtection.on}
-                aria-label={view.spawnProtection.label}
+            <SettingRow label={view.spawnProtection.label} description={view.spawnProtection.hint}>
+              <Switch
+                on={view.spawnProtection.on}
+                label={view.spawnProtection.label}
                 disabled={view.spawnProtection.disabled}
-                onClick={() => vm.toggleSpawnProtection()}
-              >
-                <span className="switch-knob" />
-              </button>
-              <div>
-                <strong>{view.spawnProtection.label}</strong>
-                <p className="muted small">{view.spawnProtection.hint}</p>
-              </div>
-            </div>
+                onToggle={() => vm.toggleSpawnProtection()}
+              />
+            </SettingRow>
           )}
-        </Card>
+        </Section>
       )}
 
-      <Card title="Change the game" className="span-2">
+      <Section
+        icon="flag"
+        title="Change the game"
+        description="Choose a game mode, its maps, the bots and when a match ends. Then press Apply changes below."
+        aside={
+          draft && (
+            <Button kind="quiet" onClick={() => vm.resetDraft()}>
+              Usual setup for this mode
+            </Button>
+          )
+        }
+      >
         {!draft ? (
           <p className="muted">
             <Spinner /> Getting the game modes...
           </p>
         ) : (
-          <div className="game-form">
-            <section className="game-step">
-              <h3>
-                <span className="step-number">1</span> Game mode
-              </h3>
+          <div className="steps">
+            <Step number={1} title="Game mode">
               <div className="mode-grid" role="radiogroup" aria-label="Game mode">
                 {draft.modes.map((mode) => (
                   <button
                     key={mode.key}
                     role="radio"
                     aria-checked={mode.selected}
-                    className={`mode-card ${mode.selected ? 'mode-card-selected' : ''}`}
+                    className={`option-card ${mode.selected ? 'option-card-selected' : ''}`}
                     onClick={() => vm.pickMode(mode.key)}
                   >
-                    <strong>{mode.name}</strong>
-                    <span>{mode.description}</span>
-                    <span className="mode-kind">{mode.teamMode ? 'Teams' : 'Everyone for themselves'}</span>
+                    <span className="option-card-title">
+                      {mode.name}
+                      {mode.selected && <Icon name="check" size={16} />}
+                    </span>
+                    <span className="option-card-text">{mode.description}</span>
+                    <span className="option-card-kind">{mode.teamMode ? 'Teams' : 'Everyone for themselves'}</span>
                   </button>
                 ))}
               </div>
-            </section>
+            </Step>
 
-            <section className="game-step">
-              <h3>
-                <span className="step-number">2</span> Map
-              </h3>
-              <select
-                className="map-select"
-                aria-label="Map"
-                value={draft.maps.find((m) => m.selected)?.id ?? ''}
-                onChange={(e) => vm.pickMap(e.target.value)}
-              >
+            <Step
+              number={2}
+              title="Maps"
+              description="Pick one map, or several to play one after another. After the last one it starts over."
+            >
+              <div className="map-grid">
                 {draft.maps.map((map) => (
-                  <option key={map.id} value={map.id}>
+                  <button
+                    key={map.id}
+                    aria-pressed={map.order !== null}
+                    className={`map-option ${map.order !== null ? 'map-option-selected' : ''}`}
+                    onClick={() => vm.toggleMap(map.id)}
+                  >
+                    <span className="map-order">{map.order ?? ''}</span>
                     {map.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </section>
+              </div>
+              <p className="loop-text">
+                <Icon name="restart" size={14} /> {draft.loopText}
+              </p>
+            </Step>
 
-            <section className="game-step">
-              <h3>
-                <span className="step-number">3</span> Bots
-              </h3>
+            <Step number={3} title="Bots" description={draft.places.text}>
               <div className={`team-columns ${draft.lists.length === 1 ? 'team-columns-single' : ''}`}>
                 {draft.lists.map((list) => (
                   <div key={list.id} className={`team-column team-column-${list.tone}`}>
                     <h4>
-                      {list.label} <span className="muted">({list.bots.length})</span>
+                      {list.label} <span className="muted">· {list.bots.length}</span>
                     </h4>
                     <ul className="bot-chips">
                       {list.bots.map((bot, i) => (
@@ -174,7 +226,7 @@ export function GameTab({ api }: { api: WopApi }) {
                             aria-label={`Take ${bot} out`}
                             onClick={() => vm.removeBot(list.id, i)}
                           >
-                            ×
+                            <Icon name="x" size={12} />
                           </button>
                         </li>
                       ))}
@@ -197,7 +249,8 @@ export function GameTab({ api }: { api: WopApi }) {
                   </div>
                 ))}
               </div>
-              <div className="bot-settings">
+              <div className="skill-row">
+                <span className="setting-label">How good the bots are</span>
                 <div className="choice" role="radiogroup" aria-label="How good the bots are">
                   {draft.skills.map((skill) => (
                     <button
@@ -211,54 +264,41 @@ export function GameTab({ api }: { api: WopApi }) {
                     </button>
                   ))}
                 </div>
-                <span className={`small ${draft.places.full ? 'places-full' : 'muted'}`}>{draft.places.text}</span>
               </div>
-            </section>
+            </Step>
 
-            <section className="game-step">
-              <h3>
-                <span className="step-number">4</span> A match ends at
-              </h3>
+            <Step number={4} title="A match ends at" description="Whichever comes first. 0 means no limit.">
               <div className="limits">
-                <label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={999}
-                    value={draft.points}
-                    onChange={(e) => vm.setPoints(e.target.value)}
-                  />{' '}
-                  points
-                </label>
-                <span className="muted">or</span>
-                <label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={999}
-                    value={draft.minutes}
-                    onChange={(e) => vm.setMinutes(e.target.value)}
-                  />{' '}
-                  minutes
-                </label>
-                <span className="muted small">0 = no limit</span>
+                <LimitField label="Points" which="points" view={draft.points} vm={vm} />
+                <span className="limits-or">or</span>
+                <LimitField label="Minutes" which="minutes" view={draft.minutes} vm={vm} />
               </div>
-            </section>
-
-            <footer className="game-apply">
-              <div className="card-actions">
-                <Button kind="primary" disabled={!draft.canApply} onClick={() => vm.apply()}>
-                  {draft.applyLabel}
-                </Button>
-                <Button kind="quiet" onClick={() => vm.resetDraft()}>
-                  Back to the usual setup for this mode
-                </Button>
-              </div>
-              <p className={`small ${draft.places.full ? 'places-full' : 'muted'}`}>{draft.hint}</p>
-            </footer>
+              {draft.limitsHint && <Notice kind="warn">{draft.limitsHint}</Notice>}
+            </Step>
           </div>
         )}
-      </Card>
+      </Section>
+
+      <footer className="action-bar">
+        <p className={`action-bar-hint ${footer.warn ? 'action-bar-warn' : ''}`}>{footer.hint}</p>
+        <div className="action-bar-buttons">
+          <Button kind="info" icon="restart" disabled={footer.restart.disabled} onClick={() => vm.restartMatch()}>
+            {footer.restart.label}
+          </Button>
+          <Button
+            kind="secondary"
+            icon="save"
+            title={footer.save.hint}
+            disabled={footer.save.disabled}
+            onClick={() => vm.saveAsStartup()}
+          >
+            {footer.save.label}
+          </Button>
+          <Button kind="success" icon="check" disabled={footer.apply.disabled} onClick={() => vm.apply()}>
+            {footer.apply.label}
+          </Button>
+        </div>
+      </footer>
     </div>
   )
 }

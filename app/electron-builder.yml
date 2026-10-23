@@ -7,6 +7,10 @@ files:
   - out/**
   - package.json
 extraResources:
+  # World of PADMAN's logo for the app window (build/icon.* are the installer and app icons). © PadWorld Entertainment,
+  # used with credit for this free World of PADMAN tool, as their terms allow (COPYING.md in their repository).
+  - from: build/icon.png
+    to: icon.png
   - from: resources/kit
     to: kit
     filter: ["**/*", "!**/__pycache__/**", "!**/tests/**", "!**/test_*.py"]

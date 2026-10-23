@@ -32,7 +32,7 @@ const ALLOWED: { [M in CommandModel]: (keyof ModelCommands[M])[] } = {
   network: ['check', 'fix'],
   commands: ['run', 'clear'],
   ai: ['refresh', 'connect', 'disconnect', 'open', 'restart', 'install'],
-  game: ['loadCatalog', 'apply', 'restartMatch', 'sendMessage', 'saveAsStartup'],
+  game: ['loadCatalog', 'loadRotation', 'apply', 'restartMatch', 'sendMessage', 'saveAsStartup'],
   logs: ['history', 'openFolder']
 }
 

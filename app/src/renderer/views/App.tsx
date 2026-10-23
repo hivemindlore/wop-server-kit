@@ -2,13 +2,18 @@ import { useMemo } from 'react'
 import type { WopApi } from '@shared/api'
 import { AppViewModel } from '../viewmodels/AppViewModel'
 import { useActive, useViewModel } from '../viewmodels/ViewModel'
+import logo from '../assets/wop-logo.svg'
 import { AiTab } from './AiTab'
 import { CommandsTab } from './CommandsTab'
-import { Button, Notice, Spinner } from './components'
+import { Button, Icon, type IconName, Notice, Spinner } from './components'
 import { GameTab } from './GameTab'
 import { LogsTab } from './LogsTab'
 import { MyServerTab } from './MyServerTab'
 import { SetupWizard } from './SetupWizard'
+
+const TAB_ICONS: Record<string, IconName> = {
+  server: 'server', ai: 'sparkles', 'my-server': 'power', game: 'gamepad', commands: 'terminal', logs: 'list'
+}
 
 export function App({ api }: { api: WopApi }) {
   const vm = useActive(useMemo(() => new AppViewModel(api), [api]))
@@ -39,7 +44,7 @@ export function App({ api }: { api: WopApi }) {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">W</span>
+          <img className="brand-mark" src={logo} alt="" />
           <span>WoP Server</span>
         </div>
         <nav className="tabs" role="tablist">
@@ -51,6 +56,7 @@ export function App({ api }: { api: WopApi }) {
               className={`tab ${tab.active ? 'tab-active' : ''}`}
               onClick={() => vm.selectTab(tab.id)}
             >
+              <Icon name={TAB_ICONS[tab.id]} size={16} />
               {tab.label}
             </button>
           ))}
@@ -70,7 +76,7 @@ export function App({ api }: { api: WopApi }) {
       )}
       <main className="content" role="tabpanel">
         {view.activeTab === 'server' && (
-          <div className="server-section">
+          <div className={`server-section ${view.activeServerTab === 'logs' ? 'server-section-fill' : ''}`}>
             <nav className="subtabs" role="tablist" aria-label="Server">
               {view.serverTabs.map((tab) => (
                 <button
@@ -80,6 +86,7 @@ export function App({ api }: { api: WopApi }) {
                   className={`subtab ${tab.active ? 'subtab-active' : ''}`}
                   onClick={() => vm.selectServerTab(tab.id)}
                 >
+                  <Icon name={TAB_ICONS[tab.id]} size={16} />
                   {tab.label}
                 </button>
               ))}

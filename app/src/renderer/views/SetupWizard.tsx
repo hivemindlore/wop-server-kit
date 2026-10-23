@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { WopApi } from '@shared/api'
 import { SetupViewModel } from '../viewmodels/SetupViewModel'
 import { useActive, useViewModel } from '../viewmodels/ViewModel'
+import logo from '../assets/wop-logo.svg'
 import { Button, Notice, ProgressBar } from './components'
 import { NetworkCard } from './NetworkCard'
 
@@ -12,9 +13,12 @@ export function SetupWizard({ api, onFinished }: { api: WopApi; onFinished: () =
   return (
     <main className="wizard">
       <div className="wizard-card">
-        <p className="muted small">
-          Step {view.stepNumber} of {view.stepCount}
-        </p>
+        <header className="wizard-head">
+          <img className="wizard-logo" src={logo} alt="World of PADMAN" />
+          <p className="muted small">
+            Step {view.stepNumber} of {view.stepCount}
+          </p>
+        </header>
 
         {view.step === 'welcome' && (
           <>
@@ -102,7 +106,7 @@ export function SetupWizard({ api, onFinished }: { api: WopApi; onFinished: () =
             ) : (
               <>
                 {view.claude.error && <Notice kind="error">{view.claude.error}</Notice>}
-                <div className="card-actions">
+                <div className="button-row">
                   <Button kind="primary" onClick={() => vm.installClaude()}>
                     {view.claude.installLabel}
                   </Button>
@@ -135,7 +139,7 @@ export function SetupWizard({ api, onFinished }: { api: WopApi; onFinished: () =
           <>
             <h1>All set!</h1>
             <p>Your server is ready. Start it now? You can always turn it on and off on the Server tab.</p>
-            <div className="card-actions">
+            <div className="button-row">
               <Button kind="primary" disabled={view.starting} onClick={() => void vm.finish(true)}>
                 Start my server
               </Button>

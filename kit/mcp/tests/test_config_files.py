@@ -90,3 +90,16 @@ def test_reset_needs_the_admin_password(cfg_dir):
     (cfg_dir / "server-friends.cfg").write_text('set sv_hostname "x"\n', encoding="utf-8")
     with pytest.raises(WopError, match="admin password"):
         config_files.reset_to_defaults(cfg_dir)
+
+
+def test_save_as_startup_with_a_map_loop(cfg_dir):
+    config_files.save_as_startup(read_state(FakeRcon()), cfg_dir, maps=["wop_padkitchen", "wop_padship"])
+    text = (cfg_dir / "server-friends.cfg").read_text(encoding="utf-8")
+    block = text[text.index(config_files.START_MARK):text.index(config_files.END_MARK)]
+    lines = block.splitlines()
+    assert lines.index("map wop_padkitchen") < lines.index("set nextmap vstr wop_rot1") < lines.index("exec teams.cfg")
+    assert 'set wop_rot1 "map wop_padship; set nextmap vstr wop_rot0"' in lines
+    assert "padkitchen and padship in a loop" in lines[1]
+    config_files.save_as_startup(read_state(FakeRcon()), cfg_dir, maps=["wop_padkitchen"])
+    text = (cfg_dir / "server-friends.cfg").read_text(encoding="utf-8")
+    assert "nextmap" not in text and "map wop_padgarden" in text   # one map: the one running now

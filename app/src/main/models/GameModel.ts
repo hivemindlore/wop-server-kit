@@ -8,13 +8,14 @@ interface ActionResult {
 }
 
 /**
- * The game on the server (the Game tab): the modes, maps and bots to choose from, starting a whole new game,
- * restarting the match, a message to everyone, and keeping the current game as the one the server starts with.
- * What's playing right now comes from the server model; onChanged asks it to look again after a change.
+ * The game on the server (the Game tab): the modes, maps and bots to choose from, the maps that play one after
+ * another, starting a whole new game, restarting the match, a message to everyone, and keeping the current game as
+ * the one the server starts with. What's playing right now comes from the server model; onChanged asks it to look
+ * again after a change.
  */
 export class GameModel extends StateModel<GameState> {
   constructor(private readonly bridge: Bridge, private readonly onChanged: () => void = () => {}) {
-    super({ catalog: null, busy: null, notice: null })
+    super({ catalog: null, rotation: null, busy: null, notice: null })
   }
 
   async loadCatalog(): Promise<void> {
@@ -23,6 +24,17 @@ export class GameModel extends StateModel<GameState> {
       this.update({ catalog: await this.bridge.request<GameCatalog>('game.catalog') })
     } catch (error) {
       this.update({ notice: { kind: 'error', text: messageOf(error) } })
+    }
+    await this.loadRotation()
+  }
+
+  /** One question to the server, only when the Game tab needs it (not in the status poll). */
+  async loadRotation(): Promise<void> {
+    try {
+      const { maps } = await this.bridge.request<{ maps: string[] }>('game.rotation')
+      this.update({ rotation: maps.length ? maps : null })
+    } catch {
+      // keep what we had
     }
   }
 
@@ -53,6 +65,7 @@ export class GameModel extends StateModel<GameState> {
     } catch (error) {
       this.update({ notice: { kind: 'error', text: messageOf(error) } })
     }
+    if (busy === 'applying') await this.loadRotation()
     this.update({ busy: null })
     this.onChanged()
   }

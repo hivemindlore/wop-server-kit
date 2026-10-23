@@ -89,6 +89,7 @@ class Bridge:
             "game.restart_match": self.game_restart_match,
             "game.send_message": self.game_send_message,
             "game.save_as_startup": self.game_save_as_startup,
+            "game.rotation": self.game_rotation,
             "open.log_folder": self.open_log_folder,
         }
 
@@ -438,13 +439,14 @@ class Bridge:
                           "default_bots": mode.get("default_bots", [])})
         return {"modes": modes, "bots": [bot["name"] for bot in Game.list_bots()]}
 
-    def game_set(self, gamemode: str, map: str | None = None, red: list[str] | None = None,
+    def game_set(self, gamemode: str, maps: list[str] | None = None, red: list[str] | None = None,
                  blue: list[str] | None = None, bots: list[str] | None = None, skill: int = 3,
                  pointlimit: int | None = None, timelimit: int | None = None) -> dict:
-        """A whole new game at once; the weapons stay as they are. An empty bot list means no bots."""
+        """A whole new game at once; the weapons stay as they are. Several maps play one after another, then
+        start over. An empty bot list means no bots."""
         self._require_running()
-        result = self.game.set_game(gamemode, map=map, red=red or None, blue=blue or None, bots=bots or None,
-                                    skill=skill, pointlimit=pointlimit, timelimit=timelimit,
+        result = self.game.set_game(gamemode, maps=maps or None, red=red or None, blue=blue or None,
+                                    bots=bots or None, skill=skill, pointlimit=pointlimit, timelimit=timelimit,
                                     no_bots=not (red or blue or bots))
         return {"result": result["result"], "problems": result.get("problems", [])}
 
@@ -456,9 +458,15 @@ class Bridge:
         self._require_running()
         return self.game.send_message(text)
 
+    def game_rotation(self) -> dict:
+        """The maps that play one after another ([] when the server is off or can't tell)."""
+        if not self.game.rcon.is_running():
+            return {"maps": []}
+        return {"maps": self.game.map_rotation()}
+
     def game_save_as_startup(self) -> dict:
         self._require_running()
-        save_as_startup(self.game.state())
+        save_as_startup(self.game.state(), maps=self.game.map_rotation())
         return {"result": "Saved. The server starts with this game from now on."}
 
     def open_log_folder(self) -> dict:

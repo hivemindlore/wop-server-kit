@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { WopApi } from '@shared/api'
 import { LogsViewModel } from '../viewmodels/LogsViewModel'
 import { useActive, useViewModel } from '../viewmodels/ViewModel'
-import { Button, Spinner } from './components'
+import { Button, PageHeader, Spinner } from './components'
 
 export function LogsTab({ api }: { api: WopApi }) {
   const vm = useActive(useMemo(() => new LogsViewModel(api), [api]))
@@ -15,7 +15,8 @@ export function LogsTab({ api }: { api: WopApi }) {
   }, [view.rows, view.follow])
 
   return (
-    <div className="logs">
+    <div className="page page-wide logs">
+      <PageHeader title="Logs" description="Everything the server says, live." />
       <div className="toolbar">
         <input
           type="search"

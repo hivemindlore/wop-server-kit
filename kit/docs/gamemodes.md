@@ -16,6 +16,16 @@ by swapping in names from the [bot list](#bot-names) and [map list](#map-names) 
 The new mode starts right away and **keeps replaying** (same map, same bots) until you switch again.
 Restarting the server always goes back to the startup game (the first block below).
 
+**Several maps in a loop:** in the WoP Server app (Server › Game) pick more than one map, or ask Claude
+("play padgarden, padkitchen and padship in a loop"). By hand, replace the `map` line of a block with:
+```
+set wop_rot0 "map wop_padgarden; set nextmap vstr wop_rot1"
+set wop_rot1 "map wop_padkitchen; set nextmap vstr wop_rot0"
+map wop_padgarden
+set nextmap vstr wop_rot1
+```
+(`set nextmap` has to come after `map`: loading a map makes the next match replay it.)
+
 > Why not paste straight into the server window? It only keeps the first line of a multi-line paste,
 > so the rest of the block gets lost. Going through `mode.cfg` always works.
 

@@ -1,5 +1,5 @@
 import type { NetworkView } from '../viewmodels/network'
-import { Button, Card, Dot, Notice } from './components'
+import { Button, Dot, Notice, Section } from './components'
 
 export function NetworkCard(props: {
   view: NetworkView
@@ -9,10 +9,12 @@ export function NetworkCard(props: {
 }) {
   const { view } = props
   return (
-    <Card
+    <Section
+      icon="wifi"
       title="Can other computers find your server?"
+      description="Your firewall decides whether others on your network may join."
       aside={
-        <Button kind="quiet" onClick={props.onCheck} disabled={view.status === 'checking' || view.fixing}>
+        <Button kind="secondary" onClick={props.onCheck} disabled={view.status === 'checking' || view.fixing}>
           Check again
         </Button>
       }
@@ -29,7 +31,7 @@ export function NetworkCard(props: {
         </ul>
       )}
       {view.canFix && (
-        <div className="fix-row">
+        <div className="button-row">
           <Button kind="primary" onClick={props.onFix}>
             {view.fixLabel}
           </Button>
@@ -53,6 +55,6 @@ export function NetworkCard(props: {
           . Also check that everyone is on the same Wi-Fi (a guest Wi-Fi usually doesn't work).
         </p>
       )}
-    </Card>
+    </Section>
   )
 }

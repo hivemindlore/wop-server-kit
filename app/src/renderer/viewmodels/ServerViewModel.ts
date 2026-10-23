@@ -180,7 +180,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
       network: describeNetwork(this.network),
       play: this.server?.playing
         ? { label: 'Running...', disabled: true }
-        : { label: '▶ Play World of PADMAN', disabled: false },
+        : { label: 'Play World of PADMAN', disabled: false },
       online: this.presentOnline(),
       reset: {
         confirming: this.confirmingReset,

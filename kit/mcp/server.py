@@ -57,8 +57,9 @@ Game rules worth knowing:
   (copies are named FatPad2, FatPad3, ... automatically).
 - The server has 16 slots for humans and bots together. Humans choose their own team in the game
   (/team red, /team blue or the Esc menu); move_player can move them.
-- A match that ends replays the same map and mode. Restarting the server goes back to the saved startup
-  game; save_as_startup makes the current setup the new startup game.
+- A match that ends replays the same map and mode, unless set_game got several maps: then they play one
+  after another and start over. Restarting the server goes back to the saved startup game; save_as_startup
+  makes the current setup (including such a map loop) the new startup game.
 - For a full switch (mode + map + weapons + bots at once) use set_game. For small changes use
   change_map, set_weapons, set_limits, set_teams, add_bots, remove_bots or move_player.
 """
@@ -131,11 +132,13 @@ def set_game(
     timelimit: Annotated[int | None, Field(ge=0, description="Minutes; omit for the mode's default, 0 = none")] = None,
     keep_current_bots: Annotated[bool, Field(description="Re-add the bots that are on now instead of the default lineup")] = False,
     lps_lives: Annotated[int | None, Field(ge=1, description="Last Pad Standing: lives per player")] = None,
+    maps: Annotated[list[str] | None, Field(description="Several maps that play one after another, then start "
+                                                        "over (instead of map)")] = None,
 ) -> dict:
     """Switch everything at once: game mode, map, weapons, limits and bots (replaces all bots).
     If no bots are given and keep_current_bots is false, the mode's default lineup from gamemodes.md is used."""
     return _call(game.set_game, gamemode, map, weapons, red, blue, bots, skill, pointlimit, timelimit,
-                 keep_current_bots, lps_lives)
+                 keep_current_bots, lps_lives, maps=maps)
 
 
 @mcp.tool()
@@ -288,7 +291,7 @@ def save_as_startup() -> dict:
     """Make the current mode, map, weapons, limits and bot lineup the game the server starts with
     (writes teams.cfg and the startup block of server-friends.cfg, keeping .bak copies)."""
     def save():
-        return config_files.save_as_startup(game.state())
+        return config_files.save_as_startup(game.state(), maps=game.map_rotation())
     return _call(save)
 
 

@@ -12,7 +12,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import config
+from . import config, maploop
 from .catalog import WopError, resolve_bot
 from .server_state import GameState
 
@@ -102,11 +102,13 @@ def teams_cfg_text(state: GameState) -> str:
     return text
 
 
-def startup_block(state: GameState) -> str:
+def startup_block(state: GameState, maps: list[str] | None = None) -> str:
+    """maps: the running map loop; the server then starts on its first map and plays them in turn."""
     mode = state.mode
+    loop = maps if maps and len(maps) > 1 else [state.map]
     lines = [
         START_MARK,
-        f"// {mode.name if mode else 'Game type ' + str(state.gametype)} on {state.map}, "
+        f"// {mode.name if mode else 'Game type ' + str(state.gametype)} on {maploop.describe(loop)}, "
         f"{'InstaPad' if state.instapad else 'regular weapons'} (written by save_as_startup)",
         f'set g_gametype     "{state.gametype}"',
         'set bot_minplayers "0"',
@@ -116,11 +118,11 @@ def startup_block(state: GameState) -> str:
     ]
     if state.gametype == 4 and state.lps_lives:
         lines.append(f'set g_LPS_startlives "{state.lps_lives}"')
-    lines += [f"map {state.map}", "exec teams.cfg", END_MARK]
+    lines += maploop.define(loop) + [f"map {loop[0]}"] + maploop.start(loop) + ["exec teams.cfg", END_MARK]
     return "\n".join(lines)
 
 
-def save_as_startup(state: GameState, cfg_dir: Path | None = None) -> dict:
+def save_as_startup(state: GameState, cfg_dir: Path | None = None, maps: list[str] | None = None) -> dict:
     cfg_dir = cfg_dir or config.cfg_dir()
     server_cfg, teams_cfg = cfg_dir / "server-friends.cfg", cfg_dir / "teams.cfg"
     text = server_cfg.read_text(encoding="utf-8")
@@ -128,7 +130,8 @@ def save_as_startup(state: GameState, cfg_dir: Path | None = None) -> dict:
     if start < 0 or end < start:
         raise WopError(f"Can't find the '{START_MARK}' / '{END_MARK}' lines in {server_cfg}, "
                        "so the startup game can't be saved automatically.")
-    new_text = text[:start] + startup_block(state) + text[end + len(END_MARK):]
+    block = startup_block(state, maps)
+    new_text = text[:start] + block + text[end + len(END_MARK):]
 
     for path in (server_cfg, teams_cfg):
         if path.exists():
@@ -139,6 +142,6 @@ def save_as_startup(state: GameState, cfg_dir: Path | None = None) -> dict:
         "result": "Saved. The server will start with this setup from now on.",
         "files": [str(server_cfg), str(teams_cfg)],
         "backups": [str(server_cfg) + ".bak", str(teams_cfg) + ".bak"],
-        "startup_block": startup_block(state),
+        "startup_block": block,
         "note": "A join password and changes made with run_console_command aren't saved.",
     }

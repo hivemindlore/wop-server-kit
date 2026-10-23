@@ -152,7 +152,8 @@ export interface GameCatalog {
 /** A whole new game, chosen on the Game tab. Team modes use red/blue, solo modes bots. */
 export interface GameChoice {
   gamemode: string
-  map: string
+  /** One map, or several that play one after another and then start over. */
+  maps: string[]
   red: string[]
   blue: string[]
   bots: string[]
@@ -210,6 +211,8 @@ export interface ServerState {
 
 export interface GameState {
   catalog: GameCatalog | null
+  /** The maps that play one after another on the server now (one map without a loop; null: not known). */
+  rotation: string[] | null
   busy: 'applying' | 'restarting' | 'sending' | 'saving' | null
   notice: Notice | null
 }
@@ -298,6 +301,8 @@ export interface ModelCommands {
   }
   game: {
     loadCatalog(): Promise<void>
+    /** Asks the server which maps play one after another. */
+    loadRotation(): Promise<void>
     /** Starts a whole new game right away; players stay, the bots are replaced. */
     apply(choice: GameChoice): Promise<void>
     restartMatch(): Promise<void>

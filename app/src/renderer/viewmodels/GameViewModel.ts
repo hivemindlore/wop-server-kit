@@ -4,6 +4,7 @@ import { ViewModel } from './ViewModel'
 import { describeWeapons, type SpawnProtectionView, type WeaponsView } from './weapons'
 
 export type BotList = 'red' | 'blue' | 'bots'
+export type Limit = 'points' | 'minutes'
 
 const SKILLS: { value: number; label: string }[] = [
   { value: 1, label: 'Very easy' },
@@ -14,37 +15,56 @@ const SKILLS: { value: number; label: string }[] = [
 ]
 const DEFAULT_PLACES = 16
 const MAX_LIMIT = 999
+const MAX_MAPS = 16
+
+export interface LimitView {
+  /** What's in the box (may be half typed). */
+  text: string
+  /** "no limit" at 0, otherwise empty. */
+  note: string
+  canLower: boolean
+  canRaise: boolean
+}
 
 export interface GameView {
   notice: Notice | null
   /** null while it isn't known yet whether the server runs. */
   serverOn: boolean | null
   startingServer: boolean
-  nowPlaying: { mode: string; map: string; weapons: string; limits: string; people: string } | null
+  nowPlaying: { mode: string; map: string; weapons: string; limits: string; people: string; loop: string | null } | null
   busy: GameState['busy']
   message: string
   canSend: boolean
+  sendLabel: string
   weapons: WeaponsView | null
   spawnProtection: SpawnProtectionView | null
   draft: {
     modes: { key: string; name: string; description: string; teamMode: boolean; selected: boolean }[]
-    maps: { id: string; label: string; selected: boolean }[]
+    /** The maps that fit the mode; order is the place in the loop (1, 2, ...), null when not picked. */
+    maps: { id: string; label: string; order: number | null }[]
+    loopText: string
     lists: { id: BotList; label: string; tone: 'red' | 'blue' | 'none'; bots: string[] }[]
     botChoices: string[]
     canAddBot: boolean
     skills: { value: number; label: string; selected: boolean }[]
-    points: number
-    minutes: number
+    points: LimitView
+    minutes: LimitView
+    limitsHint: string | null
     places: { text: string; full: boolean }
-    canApply: boolean
-    applyLabel: string
-    hint: string
   } | null
+  /** The bar that stays at the bottom of the Game tab. */
+  footer: {
+    restart: { label: string; disabled: boolean }
+    apply: { label: string; disabled: boolean }
+    save: { label: string; disabled: boolean; hint: string }
+    hint: string
+    warn: boolean
+  }
 }
 
 interface Draft {
   mode: string
-  map: string
+  maps: string[]
   red: string[]
   blue: string[]
   bots: string[]
@@ -62,15 +82,22 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
+function clampLimit(value: number): number {
+  return Math.min(MAX_LIMIT, Math.max(0, Math.round(value)))
+}
+
 /**
- * The Game tab: what's playing now (restart the match, a message to everyone, keep it as the startup game),
- * the weapons, and choosing a whole new game: mode, a map that fits it, the bots and when a match ends.
+ * The Game tab: what's playing now, a message to everyone, the weapons, and choosing a whole new game: mode,
+ * one map or several in a loop, the bots and when a match ends. A bar at the bottom restarts the match, applies
+ * the new game and keeps the current game as the one the server starts with.
  */
 export class GameViewModel extends ViewModel<GameView> {
   private game: GameState | null = null
   private server: ServerState | null = null
   private draft: Draft | null = null
   private message = ''
+  /** What's typed in the limit boxes, until it's committed (blur, Enter, Apply). */
+  private typed: Partial<Record<Limit, string>> = {}
 
   constructor(api: WopApi) {
     super(api)
@@ -79,9 +106,12 @@ export class GameViewModel extends ViewModel<GameView> {
       this.startDraft()
     })
     this.mirror('server', (state) => {
+      const wasOn = this.server?.status?.running
       this.server = state
+      if (wasOn === false && state.status?.running) void this.api.call('game', 'loadRotation')
       this.startDraft()
     })
+    void this.api.call('game', 'loadRotation')
   }
 
   protected present(): GameView {
@@ -90,6 +120,15 @@ export class GameViewModel extends ViewModel<GameView> {
     const busy = this.game?.busy ?? null
     const players = status?.players ?? []
     const humans = players.filter((p) => !p.bot).length
+    const draft = this.presentDraft(humans)
+    const rotation = this.game?.rotation ?? []
+    let hint = 'Players stay connected; the map loads again and the bots are replaced.'
+    let warn = false
+    if (on === false) hint = 'Start the server on My server to change the game.'
+    else if (draft?.places.full) {
+      hint = `That's more players and bots than the ${status?.slots?.max ?? DEFAULT_PLACES} places. Take some bots out.`
+      warn = true
+    }
     return {
       notice: this.game?.notice ?? this.server?.notice ?? null,
       serverOn: on,
@@ -100,18 +139,34 @@ export class GameViewModel extends ViewModel<GameView> {
             map: mapLabel(status.map ?? ''),
             weapons: status.weapons === 'instapad' ? 'InstaPad (one hit wins)' : 'All weapons',
             limits: limitsText(status.pointlimit, status.timelimit_minutes),
-            people: `${plural(humans, 'player')} and ${plural(players.length - humans, 'bot')}`
+            people: `${plural(humans, 'player')} and ${plural(players.length - humans, 'bot')}`,
+            loop: rotation.length > 1 ? `Maps in a loop: ${rotation.map(mapLabel).join(' → ')}` : null
           }
         : null,
       busy,
       message: this.message,
       canSend: on === true && busy === null && this.message.trim().length > 0,
+      sendLabel: busy === 'sending' ? 'Sending...' : 'Send',
       ...describeWeapons(this.server?.settings, (this.server?.busy ?? null) !== null),
-      draft: this.presentDraft(on === true, busy, humans)
+      draft,
+      footer: {
+        restart: { label: busy === 'restarting' ? 'Restarting...' : 'Restart match', disabled: on !== true || busy !== null },
+        apply: {
+          label: busy === 'applying' ? 'Applying...' : 'Apply changes',
+          disabled: on !== true || busy !== null || !draft || draft.places.full
+        },
+        save: {
+          label: busy === 'saving' ? 'Saving...' : 'Save as default',
+          disabled: on !== true || busy !== null,
+          hint: 'The server starts with the game that is playing now.'
+        },
+        hint,
+        warn
+      }
     }
   }
 
-  private presentDraft(on: boolean, busy: GameState['busy'], humans: number): GameView['draft'] {
+  private presentDraft(humans: number): GameView['draft'] {
     const catalog = this.game?.catalog
     const draft = this.draft
     const mode = draft && catalog?.modes.find((m) => m.key === draft.mode)
@@ -119,36 +174,47 @@ export class GameViewModel extends ViewModel<GameView> {
     const places = this.server?.status?.slots?.max ?? DEFAULT_PLACES
     const bots = this.botCount()
     const used = bots + humans
-    const full = used > places
     const lists: NonNullable<GameView['draft']>['lists'] = mode.team_mode
       ? [
           { id: 'red', label: 'Red Pads', tone: 'red', bots: draft.red },
           { id: 'blue', label: 'Blue Noses', tone: 'blue', bots: draft.blue }
         ]
       : [{ id: 'bots', label: 'Bots', tone: 'none', bots: draft.bots }]
-    let hint = 'Players stay connected; the map loads again and the bots are replaced.'
-    if (!on) hint = 'Start the server first; then you can switch the game.'
-    else if (full) hint = `That's more than the ${places} places on the server. Take some bots out.`
+    const names = draft.maps.map(mapLabel)
     return {
       modes: catalog.modes.map((m) => ({
         key: m.key, name: m.name, description: m.description, teamMode: m.team_mode, selected: m.key === mode.key
       })),
-      maps: mode.maps.map((id) => ({ id, label: mapLabel(id), selected: id === draft.map })),
+      maps: mode.maps.map((id) => {
+        const index = draft.maps.indexOf(id)
+        return { id, label: mapLabel(id), order: index < 0 ? null : index + 1 }
+      }),
+      loopText: names.length === 1
+        ? `Only ${names[0]}: every match is on this map.`
+        : `${names.join(' → ')}, then from the start again.`,
       lists,
       botChoices: catalog.bots,
       canAddBot: used < places,
       skills: SKILLS.map((s) => ({ ...s, selected: s.value === draft.skill })),
-      points: draft.points,
-      minutes: draft.minutes,
+      points: this.presentLimit('points'),
+      minutes: this.presentLimit('minutes'),
+      limitsHint: draft.points === 0 && draft.minutes === 0 ? 'With no limits at all, a match never ends.' : null,
       places: {
         text: humans
           ? `${plural(bots, 'bot')} and ${plural(humans, 'player')}: ${used} of ${places} places`
           : `${plural(bots, 'bot')}: ${used} of ${places} places`,
-        full
-      },
-      canApply: on && busy === null && !full,
-      applyLabel: busy === 'applying' ? 'Starting the game...' : 'Start this game',
-      hint
+        full: used > places
+      }
+    }
+  }
+
+  private presentLimit(which: Limit): LimitView {
+    const value = this.draft![which]
+    return {
+      text: this.typed[which] ?? String(value),
+      note: value === 0 ? 'no limit' : '',
+      canLower: value > 0,
+      canRaise: value < MAX_LIMIT
     }
   }
 
@@ -162,7 +228,9 @@ export class GameViewModel extends ViewModel<GameView> {
     const mode = current ?? catalog.modes.find((m) => m.key === 'tffa') ?? catalog.modes[0]
     this.draft = this.defaults(mode)
     if (current) {
-      if (status.map && mode.maps.includes(status.map)) this.draft.map = status.map
+      const loop = (this.game?.rotation ?? []).filter((m) => mode.maps.includes(m))
+      if (loop.length) this.draft.maps = loop
+      else if (status.map && mode.maps.includes(status.map)) this.draft.maps = [status.map]
       this.draft.points = status.pointlimit ?? this.draft.points
       this.draft.minutes = status.timelimit_minutes ?? this.draft.minutes
     }
@@ -171,7 +239,7 @@ export class GameViewModel extends ViewModel<GameView> {
   private defaults(mode: GameModeInfo): Draft {
     return {
       mode: mode.key,
-      map: mode.default_map,
+      maps: [mode.default_map],
       red: [...mode.default_red],
       blue: [...mode.default_blue],
       bots: [...mode.default_bots],
@@ -196,13 +264,22 @@ export class GameViewModel extends ViewModel<GameView> {
     const mode = this.modeInfo(key)
     if (!mode || this.draft?.mode === key) return
     this.draft = this.defaults(mode)
+    this.typed = {}
     this.changed()
   }
 
-  pickMap(map: string): void {
+  /** Adds the map at the end of the loop, or takes it out (the last one stays). */
+  toggleMap(map: string): void {
     const mode = this.draft && this.modeInfo(this.draft.mode)
     if (!this.draft || !mode?.maps.includes(map)) return
-    this.draft = { ...this.draft, map }
+    const maps = this.draft.maps
+    if (maps.includes(map)) {
+      if (maps.length === 1) return
+      this.draft = { ...this.draft, maps: maps.filter((m) => m !== map) }
+    } else {
+      if (maps.length >= MAX_MAPS) return
+      this.draft = { ...this.draft, maps: [...maps, map] }
+    }
     this.changed()
   }
 
@@ -226,38 +303,49 @@ export class GameViewModel extends ViewModel<GameView> {
     this.changed()
   }
 
-  setPoints(value: string): void {
-    this.setLimit('points', value)
-  }
-
-  setMinutes(value: string): void {
-    this.setLimit('minutes', value)
-  }
-
-  private setLimit(which: 'points' | 'minutes', value: string): void {
+  /** Typing in a limit box: only digits, at most three. */
+  typeLimit(which: Limit, text: string): void {
     if (!this.draft) return
-    const number = Math.min(MAX_LIMIT, Math.max(0, Math.floor(Number(value) || 0)))
-    this.draft = { ...this.draft }
-    this.draft[which] = number
+    const digits = text.replace(/\D/g, '').slice(0, 3)
+    this.typed = { ...this.typed, [which]: digits }
+    if (digits) this.draft = { ...this.draft, [which]: clampLimit(Number(digits)) }
     this.changed()
   }
 
-  /** Back to the usual map, bots and limits of the chosen mode. */
+  /** Leaving the box (or Enter): an empty box goes back to the last number. */
+  commitLimit(which: Limit): void {
+    if (this.typed[which] === undefined) return
+    const { [which]: _, ...rest } = this.typed
+    this.typed = rest
+    this.changed()
+  }
+
+  stepLimit(which: Limit, by: number): void {
+    if (!this.draft) return
+    const { [which]: _, ...rest } = this.typed
+    this.typed = rest
+    this.draft = { ...this.draft, [which]: clampLimit(this.draft[which] + by) }
+    this.changed()
+  }
+
+  /** Back to the usual maps, bots and limits of the chosen mode. */
   resetDraft(): void {
     const mode = this.draft && this.modeInfo(this.draft.mode)
     if (!mode) return
     this.draft = this.defaults(mode)
+    this.typed = {}
     this.changed()
   }
 
   apply(): void {
-    const view = this.getSnapshot().draft
+    this.typed = {}
+    this.changed()
     const d = this.draft
-    if (!view?.canApply || !d) return
+    if (!d || this.getSnapshot().footer.apply.disabled) return
     const team = this.modeInfo(d.mode)?.team_mode ?? false
     void this.api.call('game', 'apply', {
       gamemode: d.mode,
-      map: d.map,
+      maps: d.maps,
       red: team ? d.red : [],
       blue: team ? d.blue : [],
       bots: team ? [] : d.bots,
@@ -281,12 +369,12 @@ export class GameViewModel extends ViewModel<GameView> {
   }
 
   restartMatch(): void {
-    if (this.game?.busy) return
+    if (this.getSnapshot().footer.restart.disabled) return
     void this.api.call('game', 'restartMatch')
   }
 
   saveAsStartup(): void {
-    if (this.game?.busy) return
+    if (this.getSnapshot().footer.save.disabled) return
     void this.api.call('game', 'saveAsStartup')
   }
 

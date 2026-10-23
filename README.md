@@ -29,7 +29,7 @@ The easiest way: one app that sets everything up and lets you run your server wi
 | Tab | What you do there |
 |-----|-------------------|
 | **Server › My server** | Turn the server on and off, **Play World of PADMAN** yourself (the button says *Running...* while the game is open), see who's playing, how others join (from home, or from anywhere with **Friends anywhere** switched on), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server, set a join password, and **Reset to defaults** puts the game mode, map, bots, weapons and join password back to how they were after installing (the name stays). |
-| **Server › Game** | What's playing now: send a message to everyone, restart the match, or keep it as the game the server starts with. Choose all weapons or InstaPad (one hit wins), with a few seconds of protection after respawning. And start a whole new game: pick the game mode, a map, the bots for each team and when a match ends. |
+| **Server › Game** | What's playing now, and a message to everyone on the server. Choose all weapons or InstaPad (one hit wins), with a few seconds of protection after respawning. Change the game in four steps: the game mode, one map or several that play one after another in a loop, the bots for each team, and when a match ends. The bar at the bottom always shows **Restart match**, **Save as default** (the server starts with this game) and **Apply changes**. |
 | **Server › Commands** | Give the server commands, with examples to start from. |
 | **Server › Logs** | Everything the server says, live, with a search box. |
 | **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |
@@ -265,6 +265,8 @@ A World of PADMAN game you had installed yourself stays.
   byte), and CI checks the committed file against `kit.json`. Drop all this once WoP releases a version with
   `g_spawnProtect`. It's GPL-2.0 like WoP's code; the source is WoP's `v1.7.0` tag plus the patch.
 - **License:** World of PADMAN may be copied and shared for non-commercial use (see its `COPYING.md`); the kit
-  downloads it from the official release instead of re-hosting it.
+  downloads it from the official release instead of re-hosting it. The app's icon is the World of PADMAN logo
+  (© PadWorld Entertainment, from `misc/` in their repository), used with credit for this free WoP tool as their
+  terms allow.
 
 </details>

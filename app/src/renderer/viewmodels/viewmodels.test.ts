@@ -267,6 +267,7 @@ describe('Weapons (Game tab) and reset (My server)', () => {
     api.states.server = serverState({ settings: settings(patch), busy })
     const vm = new GameViewModel(api)
     await settle()
+    api.calls = []    // the tab asks for the map loop when it opens
     return { api, vm, view: vm.getSnapshot() }
   }
 
@@ -762,7 +763,7 @@ describe('ServerViewModel: Play and how others join', () => {
     api.states.server = serverState({ status: running })
     const vm = new ServerViewModel(api)
     await settle()
-    expect(vm.getSnapshot().play).toEqual({ label: '▶ Play World of PADMAN', disabled: false })
+    expect(vm.getSnapshot().play).toEqual({ label: 'Play World of PADMAN', disabled: false })
     vm.play()
     expect(api.called()).toEqual(['server.play'])
     api.push('server', serverState({ status: running, playing: true }))
@@ -802,13 +803,13 @@ describe('ServerViewModel: Play and how others join', () => {
 describe('GameViewModel', () => {
   const mode = (patch: Partial<GameModeInfo>): GameModeInfo => ({
     id: 6, key: 'tffa', name: 'Team Free For All', team_mode: true, description: 'Team deathmatch.',
-    maps: ['wop_padgarden', 'wop_padkitchen'], default_map: 'wop_padgarden', default_pointlimit: 64,
+    maps: ['wop_padgarden', 'wop_padkitchen', 'wop_padship'], default_map: 'wop_padgarden', default_pointlimit: 64,
     default_timelimit: 16, default_red: ['PADMAN', 'PadGirl'], default_blue: ['FatPad'], default_bots: [], ...patch
   })
   const catalog: GameCatalog = {
     modes: [
       mode({}),
-      mode({ id: 8, key: 'ctl', name: 'Capture The Lolly', maps: ['wop_padbaseCTL', 'wop_journeyCTL'],
+      mode({ id: 8, key: 'ctl', name: 'Capture The Lolly', maps: ['wop_padbaseCTL', 'wop_journeyCTL', 'wop_fridgeCTL'],
         default_map: 'wop_padbaseCTL', default_pointlimit: 8, default_red: ['PADMAN'], default_blue: ['PadKing'] }),
       mode({ id: 0, key: 'ffa', name: 'Free For All', team_mode: false, default_map: 'wop_padgarden',
         default_pointlimit: 32, default_red: [], default_blue: [], default_bots: ['PADMAN', 'PadGirl', 'PadKing'] })
@@ -816,59 +817,109 @@ describe('GameViewModel', () => {
     bots: ['PADMAN', 'PadGirl', 'PadKing', 'FatPad']
   }
 
-  async function gameTab(status: ServerStatus = running) {
+  async function gameTab(status: ServerStatus = running, rotation: string[] | null = null) {
     const api = new FakeApi()
     api.states.server = serverState({ status })
-    api.states.game = gameState({ catalog })
+    api.states.game = gameState({ catalog, rotation })
     const vm = new GameViewModel(api)
     await settle()
+    api.calls = []    // the tab asks for the map loop when it opens
     return { api, vm }
   }
 
-  it('shows what is playing now', async () => {
-    const { vm } = await gameTab()
+  const picked = (vm: GameViewModel) =>
+    vm.getSnapshot().draft!.maps.filter((m) => m.order !== null).sort((a, b) => a.order! - b.order!).map((m) => m.id)
+
+  it('asks which maps play in a loop when it opens', async () => {
+    const api = new FakeApi()
+    new GameViewModel(api)
+    expect(api.called()).toEqual(['game.loadRotation'])
+  })
+
+  it('shows what is playing now, with the map loop', async () => {
+    const { vm } = await gameTab(running, ['wop_padbaseCTL', 'wop_journeyCTL'])
     expect(vm.getSnapshot()).toMatchObject({
       serverOn: true,
       nowPlaying: { mode: 'Capture The Lolly', map: 'padbase CTL', weapons: 'InstaPad (one hit wins)',
-        limits: 'first to 8 points or 15 minutes', people: '1 player and 2 bots' }
+        limits: 'first to 8 points or 15 minutes', people: '1 player and 2 bots',
+        loop: 'Maps in a loop: padbase CTL → journey CTL' }
     })
   })
 
-  it('starts the new game from the current mode and map', async () => {
-    const { vm } = await gameTab()
+  it('starts the new game from the current mode and its map loop', async () => {
+    const { vm } = await gameTab(running, ['wop_padbaseCTL', 'wop_fridgeCTL'])
     const draft = vm.getSnapshot().draft!
     expect(draft.modes.find((m) => m.selected)?.name).toBe('Capture The Lolly')
-    expect(draft.maps.map((m) => [m.label, m.selected])).toEqual([['padbase CTL', true], ['journey CTL', false]])
+    expect(picked(vm)).toEqual(['wop_padbaseCTL', 'wop_fridgeCTL'])
+    expect(draft.loopText).toBe('padbase CTL → fridge CTL, then from the start again.')
     expect(draft.lists.map((l) => [l.label, l.bots])).toEqual([['Red Pads', ['PADMAN']], ['Blue Noses', ['PadKing']]])
-    expect(draft).toMatchObject({ points: 8, minutes: 15, canApply: true, applyLabel: 'Start this game' })
+    expect(draft.points).toMatchObject({ text: '8', note: '' })
+    expect(vm.getSnapshot().footer.apply).toEqual({ label: 'Apply changes', disabled: false })
+  })
+
+  it('picks maps for a loop in the order they are clicked, but never none', async () => {
+    const { vm } = await gameTab()
+    expect(picked(vm)).toEqual(['wop_padbaseCTL'])
+    expect(vm.getSnapshot().draft!.loopText).toBe('Only padbase CTL: every match is on this map.')
+    vm.toggleMap('wop_fridgeCTL')
+    vm.toggleMap('wop_journeyCTL')
+    expect(picked(vm)).toEqual(['wop_padbaseCTL', 'wop_fridgeCTL', 'wop_journeyCTL'])
+    expect(vm.getSnapshot().draft!.maps.map((m) => m.order)).toEqual([1, 3, 2])
+    vm.toggleMap('wop_padbaseCTL')
+    vm.toggleMap('wop_fridgeCTL')
+    vm.toggleMap('wop_journeyCTL')     // the last one stays
+    expect(picked(vm)).toEqual(['wop_journeyCTL'])
+    vm.toggleMap('wop_padgarden')      // doesn't fit Capture The Lolly
+    expect(picked(vm)).toEqual(['wop_journeyCTL'])
   })
 
   it('picking a mode brings its usual map, bots and limits', async () => {
     const { vm } = await gameTab()
+    vm.toggleMap('wop_journeyCTL')
     vm.pickMode('ffa')
     const draft = vm.getSnapshot().draft!
-    expect(draft.maps.find((m) => m.selected)?.id).toBe('wop_padgarden')
+    expect(picked(vm)).toEqual(['wop_padgarden'])
     expect(draft.lists).toEqual([{ id: 'bots', label: 'Bots', tone: 'none', bots: ['PADMAN', 'PadGirl', 'PadKing'] }])
-    expect(draft.points).toBe(32)
-    vm.pickMap('wop_padbaseCTL')   // doesn't fit Free For All
-    expect(vm.getSnapshot().draft!.maps.find((m) => m.selected)?.id).toBe('wop_padgarden')
+    expect(draft.points.text).toBe('32')
   })
 
-  it('adds and removes bots, and starts the chosen game', async () => {
+  it('keeps the match limits valid while typing', async () => {
+    const { vm } = await gameTab()
+    vm.typeLimit('points', '1a2')
+    expect(vm.getSnapshot().draft!.points).toMatchObject({ text: '12', note: '' })
+    vm.typeLimit('points', '')
+    expect(vm.getSnapshot().draft!.points.text).toBe('')      // still typing
+    vm.commitLimit('points')
+    expect(vm.getSnapshot().draft!.points.text).toBe('12')    // empty goes back to the last number
+    vm.typeLimit('minutes', '99999')
+    expect(vm.getSnapshot().draft!.minutes.text).toBe('999')
+    vm.stepLimit('minutes', 1)
+    expect(vm.getSnapshot().draft!.minutes).toMatchObject({ text: '999', canRaise: false })
+    vm.typeLimit('minutes', '0')
+    vm.commitLimit('minutes')
+    vm.stepLimit('minutes', -1)
+    expect(vm.getSnapshot().draft!.minutes).toMatchObject({ text: '0', note: 'no limit', canLower: false })
+    expect(vm.getSnapshot().draft!.limitsHint).toBeNull()
+    vm.typeLimit('points', '0')
+    expect(vm.getSnapshot().draft!.limitsHint).toContain('never ends')
+  })
+
+  it('applies the chosen game, with the maps in their order', async () => {
     const { api, vm } = await gameTab()
     vm.addBot('blue', 'FatPad')
     vm.removeBot('red', 0)
     vm.setSkill(5)
-    vm.setPoints('3')
-    vm.setMinutes('-4')
-    vm.pickMap('wop_journeyCTL')
+    vm.typeLimit('points', '3')       // applied even without leaving the box
+    vm.typeLimit('minutes', '10')
+    vm.toggleMap('wop_journeyCTL')
     vm.apply()
     expect(api.calls.at(-1)).toEqual({
-      model: 'game', command: 'apply', args: [{ gamemode: 'ctl', map: 'wop_journeyCTL', red: [], blue: ['PadKing', 'FatPad'],
-        bots: [], skill: 5, pointlimit: 3, timelimit: 0 }]
+      model: 'game', command: 'apply', args: [{ gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'], red: [],
+        blue: ['PadKing', 'FatPad'], bots: [], skill: 5, pointlimit: 3, timelimit: 10 }]
     })
     vm.resetDraft()
     expect(vm.getSnapshot().draft!.lists.map((l) => l.bots)).toEqual([['PADMAN'], ['PadKing']])
+    expect(picked(vm)).toEqual(['wop_padbaseCTL'])
   })
 
   it('counts the places and stops at a full server', async () => {
@@ -878,27 +929,30 @@ describe('GameViewModel', () => {
     expect(vm.getSnapshot().draft!.canAddBot).toBe(false)
     vm.addBot('red', 'FatPad')
     expect(vm.getSnapshot().draft!.lists[0].bots).toEqual(['PADMAN', 'PadGirl'])
-    vm.pickMode('ffa')   // 3 bots + 1 player = 4: still fits
-    expect(vm.getSnapshot().draft!.canApply).toBe(true)
-    vm.pickMode('tffa')
-    vm.addBot('blue', 'PadKing')   // can't: full
-    expect(vm.getSnapshot().draft!.places.full).toBe(false)
     api.push('server', serverState({ status: { ...running, slots: { max: 3, used: 3, free: 0 } } }))
-    expect(vm.getSnapshot().draft).toMatchObject({ canApply: false, places: { full: true } })
-    expect(vm.getSnapshot().draft!.hint).toContain('more than the 3 places')
+    expect(vm.getSnapshot().draft!.places.full).toBe(true)
+    expect(vm.getSnapshot().footer).toMatchObject({ apply: { disabled: true }, warn: true })
+    expect(vm.getSnapshot().footer.hint).toContain('than the 3 places')
   })
 
   it('needs a running server to change the game', async () => {
     const { api, vm } = await gameTab({ running: false, port: 27960, server_name: 'x' })
     expect(vm.getSnapshot()).toMatchObject({ serverOn: false, nowPlaying: null, canSend: false })
-    expect(vm.getSnapshot().draft).toMatchObject({ canApply: false })
+    expect(vm.getSnapshot().footer).toMatchObject({
+      restart: { disabled: true }, apply: { disabled: true }, save: { disabled: true }
+    })
+    expect(vm.getSnapshot().footer.hint).toContain('Start the server')
     expect(vm.getSnapshot().draft!.modes.find((m) => m.selected)?.key).toBe('tffa')
     vm.apply()
+    vm.restartMatch()
+    vm.saveAsStartup()
     vm.startServer()
     expect(api.called()).toEqual(['server.start'])
+    api.push('server', serverState({ status: running }))
+    expect(api.called()).toEqual(['server.start', 'game.loadRotation'])   // it came on: which maps loop now?
   })
 
-  it('sends a message, restarts the match and keeps the game for the next start', async () => {
+  it('sends a message, restarts the match and saves the game as the default', async () => {
     const { api, vm } = await gameTab()
     expect(vm.getSnapshot().canSend).toBe(false)
     vm.setMessage('  Dinner is ready!  ')
@@ -911,14 +965,20 @@ describe('GameViewModel', () => {
       { model: 'game', command: 'saveAsStartup', args: [] }
     ])
     expect(vm.getSnapshot().message).toBe('')
+    expect(vm.getSnapshot().footer).toMatchObject({
+      restart: { label: 'Restart match' }, save: { label: 'Save as default' }
+    })
   })
 
   it('waits while something runs', async () => {
     const { api, vm } = await gameTab()
     api.push('game', gameState({ catalog, busy: 'applying' }))
-    expect(vm.getSnapshot().draft).toMatchObject({ canApply: false, applyLabel: 'Starting the game...' })
+    expect(vm.getSnapshot().footer).toMatchObject({
+      apply: { label: 'Applying...', disabled: true }, restart: { disabled: true }, save: { disabled: true }
+    })
     vm.restartMatch()
     vm.saveAsStartup()
+    vm.apply()
     expect(api.calls).toEqual([])
   })
 })

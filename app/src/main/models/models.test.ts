@@ -660,26 +660,29 @@ describe('GameModel', () => {
   const catalog = { modes: [{ key: 'ctl' }], bots: ['PADMAN'] }
 
   it('loads the modes once', async () => {
-    const bridge = new FakeBridge({ 'game.catalog': () => catalog })
+    const bridge = new FakeBridge({ 'game.catalog': () => catalog, 'game.rotation': () => ({ maps: ['wop_padbaseCTL'] }) })
     const model = new GameModel(bridge)
     await model.loadCatalog()
     await model.loadCatalog()
     expect(model.getState().catalog).toEqual(catalog)
-    expect(bridge.methods()).toEqual(['game.catalog'])
+    expect(bridge.methods()).toEqual(['game.catalog', 'game.rotation'])
+    expect(model.getState().rotation).toEqual(['wop_padbaseCTL'])
   })
 
   it('starts a new game, says how it went and lets the server look again', async () => {
     const changed = vi.fn()
     const busy: (string | null)[] = []
     const bridge = new FakeBridge({
-      'game.set': () => ({ result: 'Now playing Capture The Lolly on wop_padbaseCTL.', problems: [] })
+      'game.set': () => ({ result: 'Now playing Capture The Lolly on wop_padbaseCTL.', problems: [] }),
+      'game.rotation': () => ({ maps: ['wop_padbaseCTL', 'wop_journeyCTL'] })
     })
     const model = new GameModel(bridge, changed)
     model.subscribe((state) => busy.push(state.busy))
-    const choice = { gamemode: 'ctl', map: 'wop_padbaseCTL', red: ['PADMAN'], blue: [], bots: [], skill: 3,
+    const choice = { gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'], red: ['PADMAN'], blue: [], bots: [], skill: 3,
       pointlimit: 8, timelimit: 16 }
     await model.apply(choice)
-    expect(bridge.calls).toEqual([{ method: 'game.set', params: choice }])
+    expect(bridge.calls).toEqual([{ method: 'game.set', params: choice }, { method: 'game.rotation', params: {} }])
+    expect(model.getState().rotation).toEqual(['wop_padbaseCTL', 'wop_journeyCTL'])   // the new loop
     expect(busy).toContain('applying')
     expect(model.getState()).toMatchObject({
       busy: null, notice: { kind: 'info', text: 'Now playing Capture The Lolly on wop_padbaseCTL.' }

@@ -85,6 +85,7 @@ export const updateState = (patch: Partial<UpdateState> = {}): UpdateState => ({
 
 export const gameState = (patch: Partial<GameState> = {}): GameState => ({
   catalog: null,
+  rotation: null,
   busy: null,
   notice: null,
   ...patch
