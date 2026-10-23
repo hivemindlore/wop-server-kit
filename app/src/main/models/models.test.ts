@@ -222,6 +222,49 @@ describe('AiModel', () => {
   })
 })
 
+describe('AiModel: open and restart', () => {
+  const card = (patch = {}) => ({ id: 'claude-desktop', connected: true, can_restart: true, running: true,
+    finish_hint: 'Quit and reopen it.', ...patch })
+
+  it('remembers that an app connected while it was open needs a restart, until it is restarted', async () => {
+    const bridge = new FakeBridge({
+      'ai.list': () => ({ apps: [card({ connected: false })] }),
+      'ai.connect': () => card(),
+      'ai.restart': () => card(),
+      'ai.open': () => card()
+    })
+    const model = new AiModel(bridge)
+    await model.refresh()
+    await model.connect('claude-desktop')
+    expect(model.getState().restartPending).toEqual(['claude-desktop'])
+    await model.open('claude-desktop')
+    expect(model.getState().restartPending).toEqual(['claude-desktop'])  // opening isn't restarting
+    await model.restart('claude-desktop')
+    expect(model.getState().restartPending).toEqual([])
+    expect(bridge.methods()).toEqual(['ai.list', 'ai.connect', 'ai.open', 'ai.restart'])
+  })
+
+  it("needs no restart when the app wasn't open, or can't be restarted from here", async () => {
+    for (const patch of [{ running: false }, { can_restart: false }]) {
+      const model = new AiModel(new FakeBridge({ 'ai.connect': () => card(patch) }))
+      await model.connect('claude-desktop')
+      expect(model.getState().restartPending).toEqual([])
+    }
+  })
+
+  it("shows why an app couldn't be opened", async () => {
+    const model = new AiModel(new FakeBridge({
+      'ai.open': () => {
+        throw new Error("Couldn't find Cursor on this computer. Is it installed?")
+      }
+    }))
+    await model.open('cursor')
+    expect(model.getState().notice).toEqual({
+      appId: 'cursor', kind: 'error', text: "Couldn't find Cursor on this computer. Is it installed?"
+    })
+  })
+})
+
 describe('LogModel', () => {
   it('loads the end of the log once, then follows it', async () => {
     const bridge = new FakeBridge({ 'log.history': () => ({ lines: [[{ text: 'old', color: null }]] }) })

@@ -71,6 +71,71 @@ def test_broken_settings_file_is_left_alone(home):
     assert cfg.read_text() == "{ not json"
 
 
+class OpeningBehavior(type(for_name("linux"))):
+    """Linux, with the apps and Claude Desktop's window faked."""
+
+    def __init__(self, installed=(), running=False):
+        self.installed, self.running, self.calls = set(installed), running, []
+
+    def find_app(self, name):
+        return f"app:{name}" if name in self.installed else None
+
+    def open_found_app(self, handle):
+        self.calls.append(("open", handle))
+
+    def open_terminal(self, command, title):
+        self.calls.append(("terminal", command, title))
+
+    def claude_app(self):
+        return "app:Claude" if "Claude" in self.installed else None
+
+    def claude_running(self):
+        return self.running
+
+    def quit_claude(self):
+        self.calls.append(("quit",))
+
+    def open_claude(self, app):
+        self.calls.append(("open", app))
+
+
+def test_open_installed_apps(home):
+    os_ = OpeningBehavior(installed={"LM Studio"})
+    lm = ai_apps.find("lm-studio")
+    assert ai_apps.describe(lm, os_, "wop-server")["openable"] is True
+    ai_apps.open_app(lm, os_)
+    assert os_.calls == [("open", "app:LM Studio")]
+    cursor = ai_apps.find("cursor")
+    assert ai_apps.describe(cursor, os_, "wop-server")["openable"] is False
+    with pytest.raises(ValueError, match="Couldn't find Cursor"):
+        ai_apps.open_app(cursor, os_)
+    assert ai_apps.describe(ai_apps.find("chatgpt"), os_, "wop-server")["openable"] is False
+
+
+def test_claude_code_opens_in_a_terminal(home, monkeypatch):
+    os_ = OpeningBehavior()
+    code = ai_apps.find("claude-code")
+    monkeypatch.setattr(ai_apps.shutil, "which", lambda program: "/usr/bin/claude" if program == "claude" else None)
+    assert ai_apps.describe(code, os_, "wop-server")["openable"] is True
+    ai_apps.open_app(code, os_)
+    assert os_.calls == [("terminal", ["claude"], "Claude Code")]
+    monkeypatch.setattr(ai_apps.shutil, "which", lambda program: None)
+    with pytest.raises(ValueError, match="isn't installed"):
+        ai_apps.open_app(code, os_)
+
+
+def test_restart_claude_desktop_only(home):
+    os_ = OpeningBehavior(installed={"Claude"}, running=True)
+    claude = ai_apps.find("claude-desktop")
+    card = ai_apps.describe(claude, os_, "wop-server")
+    assert card["running"] is True and card["can_restart"] is True
+    ai_apps.restart_app(claude, os_)
+    assert os_.calls == [("quit",), ("open", "app:Claude")]
+    with pytest.raises(ValueError, match="can't be restarted"):
+        ai_apps.restart_app(ai_apps.find("lm-studio"), os_)
+    assert ai_apps.describe(ai_apps.find("lm-studio"), os_, "wop-server")["running"] is False
+
+
 def test_advice_only_apps_cannot_connect(home):
     with pytest.raises(ValueError):
         ai_apps.connect(ai_apps.find("chatgpt"), for_name("linux"), "wop-server", ENTRY)

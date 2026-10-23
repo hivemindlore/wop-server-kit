@@ -34,6 +34,34 @@ def terminal_command(argv: list[str]) -> list[str] | None:
     return None
 
 
+def application_dirs() -> list[Path]:
+    """Where desktops look for installed apps (.desktop files), the user's own first."""
+    home = Path.home()
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    data_dirs = [Path(d) for d in (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if d]
+    extra = [home / ".local" / "share" / "flatpak" / "exports" / "share", Path("/var/lib/flatpak/exports/share"),
+             Path("/var/lib/snapd/desktop")]
+    return [d / "applications" for d in [data_home, *data_dirs, *extra]]
+
+
+def find_desktop_entry(name: str, dirs: list[Path]) -> Path | None:
+    """The .desktop file whose Name= is name (the name shown in the app menu)."""
+    for folder in dirs:
+        try:
+            entries = sorted(folder.glob("*.desktop"))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                text = entry.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            section = text.split("[Desktop Entry]", 1)[-1].split("\n[", 1)[0]
+            if re.search(rf"(?m)^Name={re.escape(name)}\s*$", section):
+                return entry
+    return None
+
+
 def ufw_enabled() -> bool:
     if not shutil.which("ufw") and not Path("/usr/sbin/ufw").exists():
         return False
@@ -197,3 +225,23 @@ class LinuxBehavior(PosixBehavior):
             path.chmod(0o755)
             _run("gio", "set", str(path), "metadata::trusted", "true")  # GNOME: allow launching without asking
         return made
+
+    # ------------------------------------------------------------------ other apps
+
+    def find_app(self, name: str) -> str | None:
+        entry = find_desktop_entry(name, application_dirs())
+        return str(entry) if entry else None
+
+    def open_found_app(self, handle: str) -> None:
+        if shutil.which("gio"):
+            subprocess.Popen(["gio", "launch", handle], start_new_session=True)
+        else:
+            subprocess.Popen(["gtk-launch", Path(handle).stem], start_new_session=True)
+
+    def open_terminal(self, command: list[str], title: str) -> None:
+        # bash keeps the window open after the program ends
+        line = " ".join(self.quote(part) for part in command)
+        cmd = terminal_command(["bash", "-c", f"{line}; exec bash"])
+        if not cmd:
+            raise OSError("No terminal program found to open it in.")
+        subprocess.Popen(cmd, start_new_session=True)

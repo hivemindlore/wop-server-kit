@@ -146,6 +146,19 @@ class PlatformBehavior(ABC):
     def make_shortcuts(self, folder: Path, shortcuts: list[Shortcut], web_links: dict[str, str]) -> list[Path]:
         """Write the shortcuts and web links into folder; return the files made."""
 
+    # ------------------------------------------------------------------ other apps (the AI tab's Open button)
+
+    @abstractmethod
+    def find_app(self, name: str) -> str | None:
+        """An installed app by the name people know it by ("LM Studio"): a handle for open_found_app, or None."""
+
+    @abstractmethod
+    def open_found_app(self, handle: str) -> None: ...
+
+    @abstractmethod
+    def open_terminal(self, command: list[str], title: str) -> None:
+        """A terminal window that runs command and stays open (for programs like Claude Code)."""
+
     # ------------------------------------------------------------------ Claude Desktop
 
     def claude_config_paths(self) -> list[Path]:

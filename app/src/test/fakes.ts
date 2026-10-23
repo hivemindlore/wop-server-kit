@@ -73,7 +73,7 @@ const DEFAULTS: ModelStates = {
   server: serverState(),
   network: networkState(),
   commands: { entries: [], busy: false },
-  ai: { apps: [], busy: null, notice: null }
+  ai: { apps: [], busy: null, restartPending: [], notice: null }
 }
 
 /** window.wop for ViewModel tests: push model states in, see which commands were called. */

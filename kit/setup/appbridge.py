@@ -68,6 +68,8 @@ class Bridge:
             "ai.list": self.ai_list,
             "ai.connect": self.ai_connect,
             "ai.disconnect": self.ai_disconnect,
+            "ai.open": self.ai_open,
+            "ai.restart": self.ai_restart,
             "kit.check_update": self.check_update,
             "kit.update": self.update,
             "game.play": self.play,
@@ -287,6 +289,16 @@ class Bridge:
     def ai_disconnect(self, app_id: str) -> dict:
         app = ai_apps.find(app_id)
         ai_apps.disconnect(app, self.os, wopkit.SETTINGS["mcp_name"])
+        return ai_apps.describe(app, self.os, wopkit.SETTINGS["mcp_name"])
+
+    def ai_open(self, app_id: str) -> dict:
+        app = ai_apps.find(app_id)
+        ai_apps.open_app(app, self.os)
+        return ai_apps.describe(app, self.os, wopkit.SETTINGS["mcp_name"])
+
+    def ai_restart(self, app_id: str) -> dict:
+        app = ai_apps.find(app_id)
+        ai_apps.restart_app(app, self.os)
         return ai_apps.describe(app, self.os, wopkit.SETTINGS["mcp_name"])
 
     # ------------------------------------------------------------------ kit and game

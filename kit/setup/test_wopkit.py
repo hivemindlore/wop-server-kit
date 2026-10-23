@@ -468,3 +468,65 @@ def test_detect_picks_this_os():
     assert detect().name == {"win32": "windows", "darwin": "mac"}.get(sys.platform, "linux")
     with pytest.raises(RuntimeError):
         for_name("amiga")
+
+
+# --------------------------------------------------------------------------- opening other apps (AI tab)
+
+def test_windows_finds_apps_in_the_start_menu(monkeypatch):
+    from types import SimpleNamespace
+    out = ('[{"Name":"Claude","AppID":"com.squirrel.AnthropicClaude.claude"},'
+           '{"Name":"LM Studio","AppID":"ai.elementlabs.lmstudio"},{"Name":"Claude","AppID":"other"}]')
+    asked = []
+    monkeypatch.setattr(windows, "powershell", lambda script: asked.append(script) or SimpleNamespace(stdout=out))
+    monkeypatch.setattr(windows, "_start_apps", (0.0, {}))
+    assert WIN.find_app("Claude") == "shell:AppsFolder\\com.squirrel.AnthropicClaude.claude"
+    assert WIN.find_app("LM Studio") == "shell:AppsFolder\\ai.elementlabs.lmstudio"
+    assert WIN.find_app("Cursor") is None
+    assert len(asked) == 1  # Windows is asked once for all of them
+    assert windows.parse_start_apps('{"Name":"Solo","AppID":"x"}') == {"Solo": "x"}
+    assert windows.parse_start_apps("") == {} and windows.parse_start_apps("oops") == {}
+
+
+def test_mac_finds_apps_in_applications(tmp_path, monkeypatch):
+    monkeypatch.setattr(mac.Path, "home", classmethod(lambda cls: tmp_path))
+    (tmp_path / "Applications" / "LM Studio.app").mkdir(parents=True)
+    assert MAC.find_app("LM Studio") == str(tmp_path / "Applications" / "LM Studio.app")
+    assert MAC.find_app("Nope") is None
+
+
+def test_linux_finds_apps_by_their_menu_name(tmp_path):
+    user, system = tmp_path / "user", tmp_path / "system"
+    user.mkdir()
+    system.mkdir()
+    (system / "code.desktop").write_text("[Desktop Entry]\nName=Visual Studio Code\nExec=code\n"
+                                         "[Desktop Action new-window]\nName=New Empty Window\n")
+    (user / "lmstudio.desktop").write_text("[Desktop Entry]\nType=Application\nName=LM Studio\n")
+    dirs = [user, tmp_path / "missing", system]
+    assert linux.find_desktop_entry("Visual Studio Code", dirs) == system / "code.desktop"
+    assert linux.find_desktop_entry("LM Studio", dirs) == user / "lmstudio.desktop"
+    assert linux.find_desktop_entry("New Empty Window", dirs) is None  # an action, not the app
+
+
+@pytest.mark.parametrize("behavior,module,expect", [
+    (WIN, windows, ["cmd.exe", "/c", "start", "Claude Code", "cmd.exe", "/k", "claude"]),
+    (MAC, mac, ["osascript", "-e", 'tell application "Terminal" to do script "claude"',
+                "-e", 'tell application "Terminal" to activate']),
+])
+def test_open_terminal(monkeypatch, behavior, module, expect):
+    from types import SimpleNamespace
+    ran = []
+    monkeypatch.setattr(module.subprocess, "Popen", lambda cmd, **kw: ran.append(cmd))
+    monkeypatch.setattr(module.subprocess, "run", lambda cmd, **kw: ran.append(cmd) or SimpleNamespace(returncode=0))
+    behavior.open_terminal(["claude"], "Claude Code")
+    assert ran == [expect]
+
+
+def test_linux_open_terminal_keeps_the_window_open(monkeypatch):
+    ran = []
+    monkeypatch.setattr(linux.shutil, "which", lambda program: program == "gnome-terminal")
+    monkeypatch.setattr(linux.subprocess, "Popen", lambda cmd, **kw: ran.append(cmd))
+    LINUX.open_terminal(["claude"], "Claude Code")
+    assert ran == [["gnome-terminal", "--", "bash", "-c", "claude; exec bash"]]
+    monkeypatch.setattr(linux.shutil, "which", lambda program: False)
+    with pytest.raises(OSError):
+        LINUX.open_terminal(["claude"], "Claude Code")

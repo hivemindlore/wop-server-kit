@@ -169,6 +169,16 @@ def test_protocol_round_trip(bridge):
     assert any(r.get("id") == 5 and "result" in r for r in replies)
 
 
+def test_ai_open_and_restart(bridge, monkeypatch):
+    opened = []
+    monkeypatch.setattr(wopkit.OS, "find_app", lambda name: f"app:{name}" if name == "LM Studio" else None, raising=False)
+    monkeypatch.setattr(wopkit.OS, "open_found_app", lambda handle: opened.append(handle), raising=False)
+    card = ask(bridge, "ai.open", app_id="lm-studio")["result"]
+    assert opened == ["app:LM Studio"] and card["openable"] is True
+    assert "Couldn't find Cursor" in ask(bridge, "ai.open", app_id="cursor")["error"]["message"]
+    assert "can't be restarted" in ask(bridge, "ai.restart", app_id="lm-studio")["error"]["message"]
+
+
 def test_setup_messages_become_events(bridge):
     wopkit.step("Downloading World of PADMAN")
     wopkit.say("   Unpacking...")

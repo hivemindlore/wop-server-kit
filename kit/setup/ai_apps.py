@@ -37,6 +37,9 @@ class AiApp:
     connectable: bool = True
     advice: str = ""                              # for apps that can't connect
     examples: list[str] = field(default_factory=lambda: list(EXAMPLES))
+    launch_name: str | None = None                # the app's name in the Start menu / Applications / app menu
+    terminal: list[str] | None = None             # or: a program that runs in a terminal window
+    can_restart: bool = False                     # the kit can close and reopen it (so a new connection applies)
 
     def available(self, os_: PlatformBehavior) -> bool:
         return not self.connectable or bool(self.config_paths(os_))
@@ -67,6 +70,7 @@ APPS: list[AiApp] = [
         config_paths=lambda os_: _claude_desktop_paths(os_),
         installed=lambda os_: os_.claude_app() is not None,
         finish_hint="Quit Claude Desktop completely and open it again, then ask it something about your server.",
+        launch_name="Claude", can_restart=True,
     ),
     AiApp(
         id="lm-studio", name="LM Studio",
@@ -76,6 +80,7 @@ APPS: list[AiApp] = [
         config_paths=lambda os_: [_home(".lmstudio", "mcp.json")],
         installed=lambda os_: _exists(_home(".lmstudio")),
         finish_hint="Restart LM Studio. In a chat, turn on \"wop-server\" in the tools (plug icon) list.",
+        launch_name="LM Studio",
     ),
     AiApp(
         id="claude-code", name="Claude Code",
@@ -85,6 +90,7 @@ APPS: list[AiApp] = [
         installed=lambda os_: bool(shutil.which("claude")) or _exists(_home(".claude.json")),
         entry_type="stdio",
         finish_hint="Start a new Claude Code session to use your server.",
+        terminal=["claude"],
     ),
     AiApp(
         id="cursor", name="Cursor",
@@ -93,6 +99,7 @@ APPS: list[AiApp] = [
         config_paths=lambda os_: [_home(".cursor", "mcp.json")],
         installed=lambda os_: _exists(_home(".cursor")),
         finish_hint="Restart Cursor.",
+        launch_name="Cursor",
     ),
     AiApp(
         id="vscode", name="VS Code",
@@ -102,6 +109,7 @@ APPS: list[AiApp] = [
         installed=lambda os_: _exists(os_.user_config_dir() / "Code" / "User"),
         key="servers", entry_type="stdio",
         finish_hint="Restart VS Code and use Copilot chat in Agent mode.",
+        launch_name="Visual Studio Code",
     ),
     AiApp(
         id="ollama", name="Ollama", cost="free", download_url="https://ollama.com/download",
@@ -186,9 +194,45 @@ def disconnect(app: AiApp, os_: PlatformBehavior, name: str) -> bool:
     return set_entry(app.config_paths(os_), app.key, name, None) if app.connectable else False
 
 
+def openable(app: AiApp, os_: PlatformBehavior) -> bool:
+    if app.terminal:
+        return bool(shutil.which(app.terminal[0]))
+    return bool(app.launch_name and os_.find_app(app.launch_name))
+
+
+def running(app: AiApp, os_: PlatformBehavior) -> bool:
+    """Whether the app is open right now (only known for the apps the kit can restart)."""
+    return app.can_restart and os_.claude_running()
+
+
+def open_app(app: AiApp, os_: PlatformBehavior) -> None:
+    if app.terminal:
+        if not shutil.which(app.terminal[0]):
+            raise ValueError(f"{app.name} isn't installed on this computer.")
+        os_.open_terminal(app.terminal, app.name)
+        return
+    handle = os_.find_app(app.launch_name) if app.launch_name else None
+    if not handle:
+        raise ValueError(f"Couldn't find {app.name} on this computer. Is it installed?")
+    os_.open_found_app(handle)
+
+
+def restart_app(app: AiApp, os_: PlatformBehavior) -> None:
+    """Close and reopen the app, so it reads its settings (and the new connection) again."""
+    if not app.can_restart:
+        raise ValueError(f"{app.name} can't be restarted from here; close it and open it again.")
+    handle = os_.claude_app()
+    if not handle:
+        raise ValueError(f"Couldn't find {app.name} on this computer. Is it installed?")
+    os_.quit_claude()
+    os_.open_claude(handle)
+
+
 def describe(app: AiApp, os_: PlatformBehavior, name: str) -> dict:
     """Everything the AI tab shows for one app."""
     return {"id": app.id, "name": app.name, "blurb": app.blurb, "free": app.cost == "free",
             "download_url": app.download_url, "connectable": app.connectable, "available": app.available(os_),
             "installed": app.installed(os_), "connected": is_connected(app, os_, name),
-            "finish_hint": app.finish_hint, "advice": app.advice, "examples": app.examples}
+            "finish_hint": app.finish_hint, "advice": app.advice, "examples": app.examples,
+            "openable": app.connectable and openable(app, os_), "running": running(app, os_),
+            "can_restart": app.can_restart}

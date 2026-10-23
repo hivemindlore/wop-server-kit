@@ -27,7 +27,7 @@ The easiest way: one app that sets everything up and lets you run your server wi
 | **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server or set a join password. |
 | **Logs** | Everything the server says, live, with a search box. |
 | **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
-| **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then just ask it to change the game. |
+| **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |
 
 The server runs in the background: closing the app doesn't stop it. Open the app again to see it or turn it off.
 The app and the files below install the same server, so you can switch between them.

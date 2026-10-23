@@ -140,6 +140,22 @@ class MacBehavior(PosixBehavior):
             made.append(link)
         return made
 
+    # ------------------------------------------------------------------ other apps
+
+    def find_app(self, name: str) -> str | None:
+        for folder in (Path("/Applications"), Path.home() / "Applications"):
+            if (folder / f"{name}.app").exists():
+                return str(folder / f"{name}.app")
+        return None
+
+    def open_found_app(self, handle: str) -> None:
+        subprocess.run(["open", handle], check=False)
+
+    def open_terminal(self, command: list[str], title: str) -> None:
+        line = " ".join(self.quote(part) for part in command)
+        subprocess.run(["osascript", "-e", f'tell application "Terminal" to do script {applescript_quote(line)}',
+                        "-e", 'tell application "Terminal" to activate'], check=False)
+
     # ------------------------------------------------------------------ Claude Desktop
 
     def claude_config_paths(self) -> list[Path]:

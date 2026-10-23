@@ -155,6 +155,33 @@ def network_problems(report: dict, program: str, port: int) -> list[NetworkProbl
     return problems
 
 
+START_APPS_CACHE = 10.0  # seconds; asking Windows takes about a second, and the AI tab asks for several apps
+_start_apps: tuple[float, dict[str, str]] = (0.0, {})
+
+
+def parse_start_apps(text: str) -> dict[str, str]:
+    """Get-StartApps as JSON -> {app name: AppID} (the first one wins when a name is listed twice)."""
+    try:
+        data = json.loads(text.strip() or "[]")
+    except ValueError:
+        return {}
+    apps: dict[str, str] = {}
+    for entry in data if isinstance(data, list) else [data]:
+        if isinstance(entry, dict) and entry.get("Name") and entry.get("AppID"):
+            apps.setdefault(str(entry["Name"]), str(entry["AppID"]))
+    return apps
+
+
+def start_apps() -> dict[str, str]:
+    """The Start menu's apps, as Windows opens them."""
+    global _start_apps
+    read_at, apps = _start_apps
+    if time.monotonic() - read_at > START_APPS_CACHE:
+        apps = parse_start_apps(powershell("Get-StartApps | Select-Object Name, AppID | ConvertTo-Json -Compress").stdout)
+        _start_apps = (time.monotonic(), apps)
+    return apps
+
+
 class WindowsBehavior(PlatformBehavior):
     name = "windows"
     firewall_name = "Windows Firewall"
@@ -305,6 +332,20 @@ class WindowsBehavior(PlatformBehavior):
             made.append(link)
         return made
 
+    # ------------------------------------------------------------------ other apps
+
+    def find_app(self, name: str) -> str | None:
+        app_id = start_apps().get(name)
+        return "shell:AppsFolder\\" + app_id if app_id else None
+
+    def open_found_app(self, handle: str) -> None:
+        subprocess.Popen(["explorer.exe", handle])
+
+    def open_terminal(self, command: list[str], title: str) -> None:
+        # start gives the command a console window of its own; cmd /k keeps it open afterwards
+        subprocess.Popen(["cmd.exe", "/c", "start", title, "cmd.exe", "/k", subprocess.list2cmdline(command)],
+                         creationflags=CREATE_NO_WINDOW)
+
     # ------------------------------------------------------------------ Claude Desktop
 
     def claude_config_paths(self) -> list[Path]:
@@ -317,9 +358,9 @@ class WindowsBehavior(PlatformBehavior):
         return paths
 
     def claude_app(self) -> str | None:
-        out = powershell("(Get-StartApps | Where-Object { $_.Name -eq 'Claude' } | Select-Object -First 1).AppID").stdout
-        if out.strip():
-            return "shell:AppsFolder\\" + out.strip()
+        found = self.find_app("Claude")
+        if found:
+            return found
         squirrel = Path(os.environ["LOCALAPPDATA"]) / "AnthropicClaude" / "claude.exe"
         return str(squirrel) if squirrel.exists() else None
 

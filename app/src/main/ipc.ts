@@ -23,7 +23,7 @@ const ALLOWED: { [M in CommandModel]: (keyof ModelCommands[M])[] } = {
   server: ['start', 'stop', 'refresh', 'setName', 'setJoinPassword', 'play'],
   network: ['check', 'fix'],
   commands: ['run', 'clear'],
-  ai: ['refresh', 'connect', 'disconnect'],
+  ai: ['refresh', 'connect', 'disconnect', 'open', 'restart'],
   logs: ['history', 'openFolder']
 }
 

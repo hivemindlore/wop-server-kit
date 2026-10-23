@@ -317,7 +317,8 @@ describe('CommandsViewModel', () => {
 describe('AiViewModel', () => {
   const app = (patch: Partial<AiApp>): AiApp => ({
     id: 'x', name: 'X', blurb: '', free: false, download_url: 'https://x', connectable: true, available: true,
-    installed: false, connected: false, finish_hint: '', advice: '', examples: ['How do my friends join?'], ...patch
+    installed: false, connected: false, finish_hint: '', advice: '', examples: ['How do my friends join?'],
+    openable: false, running: false, can_restart: false, ...patch
   })
 
   it('orders the cards and gives each the right button', async () => {
@@ -330,6 +331,7 @@ describe('AiViewModel', () => {
         app({ id: 'claude-desktop', name: 'Claude Desktop', installed: true, connected: true })
       ],
       busy: null,
+      restartPending: [],
       notice: null
     }
     const vm = new AiViewModel(api)
@@ -349,13 +351,61 @@ describe('AiViewModel', () => {
 
   it('locks the buttons while one app is being connected', async () => {
     const api = new FakeApi()
-    api.states.ai = { apps: [app({ id: 'a' }), app({ id: 'b' })], busy: 'a', notice: null }
+    api.states.ai = { apps: [app({ id: 'a' }), app({ id: 'b' })], busy: 'a', restartPending: [], notice: null }
     const vm = new AiViewModel(api)
     await settle()
     expect(vm.getSnapshot().cards.map((c) => [c.action?.label, c.action?.disabled])).toEqual([
       ['One moment...', true],
       ['Connect', true]
     ])
+  })
+})
+
+describe('AiViewModel: opening the app', () => {
+  const app = (patch: Partial<AiApp>): AiApp => ({
+    id: 'claude-desktop', name: 'Claude Desktop', blurb: '', free: false, download_url: 'https://x',
+    connectable: true, available: true, installed: true, connected: true, finish_hint: 'Quit and reopen it.',
+    advice: '', examples: [], openable: true, running: false, can_restart: true, ...patch
+  })
+
+  async function cardFor(patch: Partial<AiApp>, restartPending: string[] = []) {
+    const api = new FakeApi()
+    api.states.ai = { apps: [app(patch)], busy: null, restartPending, notice: null }
+    const vm = new AiViewModel(api)
+    await settle()
+    return { api, vm, card: vm.getSnapshot().cards[0] }
+  }
+
+  it('offers to open a connected app', async () => {
+    const { api, vm, card } = await cardFor({})
+    expect(card.open).toEqual({ label: 'Open Claude Desktop', kind: 'open', disabled: false })
+    vm.openApp('claude-desktop')
+    expect(api.calls).toEqual([{ model: 'ai', command: 'open', args: ['claude-desktop'] }])
+  })
+
+  it('offers a restart when the app was open while it got connected', async () => {
+    const { api, vm, card } = await cardFor({ running: true }, ['claude-desktop'])
+    expect(card.open).toMatchObject({ label: 'Restart Claude Desktop', kind: 'restart' })
+    vm.openApp('claude-desktop')
+    expect(api.called()).toEqual(['ai.restart'])
+  })
+
+  it("shows no button when it isn't connected or can't be found", async () => {
+    expect((await cardFor({ connected: false })).card.open).toBeNull()
+    expect((await cardFor({ openable: false })).card.open).toBeNull()
+  })
+
+  it('says to restart instead of the general hint while a restart is pending', async () => {
+    const api = new FakeApi()
+    api.states.ai = {
+      apps: [app({ running: true })],
+      busy: null,
+      restartPending: ['claude-desktop'],
+      notice: { appId: 'claude-desktop', kind: 'info', text: 'Quit and reopen it.' }
+    }
+    const vm = new AiViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().cards[0].notice?.text).toContain('click "Restart Claude Desktop"')
   })
 })
 

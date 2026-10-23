@@ -89,6 +89,11 @@ export interface AiApp {
   finish_hint: string
   advice: string
   examples: string[]
+  /** Installed where the kit can open it (or, for Claude Code, a terminal can run it). */
+  openable: boolean
+  /** Open right now; only known for apps the kit can restart. */
+  running: boolean
+  can_restart: boolean
 }
 
 export interface UpdateCheck {
@@ -142,6 +147,8 @@ export interface CommandsState {
 export interface AiState {
   apps: AiApp[]
   busy: string | null
+  /** Connected while they were open: they need a restart to see the server. */
+  restartPending: string[]
   notice: (Notice & { appId: string }) | null
 }
 
@@ -183,6 +190,8 @@ export interface ModelCommands {
     refresh(): Promise<void>
     connect(appId: string): Promise<void>
     disconnect(appId: string): Promise<void>
+    open(appId: string): Promise<void>
+    restart(appId: string): Promise<void>
   }
   logs: {
     history(): Promise<LogLine[]>

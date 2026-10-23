@@ -44,6 +44,15 @@ export function AiTab({ api }: { api: WopApi }) {
                   {card.action.label}
                 </Button>
               )}
+              {card.open && (
+                <Button
+                  kind={card.open.kind === 'restart' ? 'primary' : 'secondary'}
+                  disabled={card.open.disabled}
+                  onClick={() => vm.openApp(card.id)}
+                >
+                  {card.open.label}
+                </Button>
+              )}
               {card.download && (
                 <Button kind="quiet" onClick={() => vm.openUrl(card.download!.url)}>
                   {card.download.label}

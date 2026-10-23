@@ -9,6 +9,8 @@ export interface AiCard {
   status: 'connected' | 'ready' | 'not-installed' | 'advice'
   statusLabel: string
   action: { label: string; kind: 'connect' | 'disconnect'; busy: boolean; disabled: boolean } | null
+  /** Open (or restart) the app itself, once it's connected. */
+  open: { label: string; kind: 'open' | 'restart'; disabled: boolean } | null
   download: { label: string; url: string } | null
   advice: string | null
   examples: string[]
@@ -38,8 +40,16 @@ export class AiViewModel extends ViewModel<AiView> {
       intro: 'Let an AI run your server: ask it in plain words to change the map, add bots or start a ' +
         'new game. Connect an app below and it knows your server.',
       loading: this.ai === null || !this.ai.apps.length,
-      cards: apps.map((app) => card(app, busy, notice?.appId === app.id ? notice : null))
+      cards: apps.map((app) =>
+        card(app, busy, this.ai?.restartPending.includes(app.id) ?? false, notice?.appId === app.id ? notice : null)
+      )
     }
+  }
+
+  openApp(appId: string): void {
+    const open = this.getSnapshot().cards.find((c) => c.id === appId)?.open
+    if (!open || open.disabled) return
+    void this.api.call('ai', open.kind === 'restart' ? 'restart' : 'open', appId)
   }
 
   connect(appId: string): void {
@@ -66,7 +76,7 @@ function order(app: AiApp): number {
   return app.installed ? 1 : 2
 }
 
-function card(app: AiApp, busy: string | null, notice: AiCard['notice']): AiCard {
+function card(app: AiApp, busy: string | null, restartPending: boolean, notice: AiCard['notice']): AiCard {
   let status: AiCard['status'] = 'advice'
   let statusLabel = ''
   if (app.connectable) {
@@ -88,9 +98,22 @@ function card(app: AiApp, busy: string | null, notice: AiCard['notice']): AiCard
           disabled: busy !== null
         }
       : null,
+    open:
+      app.connected && app.openable
+        ? {
+            label: busy === app.id
+              ? 'One moment...'
+              : restartPending ? `Restart ${app.name}` : `Open ${app.name}`,
+            kind: restartPending ? 'restart' : 'open',
+            disabled: busy !== null
+          }
+        : null,
     download: app.connectable && !app.installed ? { label: `Get ${app.name}`, url: app.download_url } : null,
     advice: app.connectable ? null : app.advice,
     examples: app.connectable ? app.examples : [],
-    notice
+    notice:
+      notice?.kind === 'info' && restartPending
+        ? { kind: 'info', text: `${app.name} is open right now: click "Restart ${app.name}" so it sees your server.` }
+        : notice
   }
 }
