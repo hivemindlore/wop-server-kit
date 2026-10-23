@@ -14,6 +14,7 @@
   --warn: #b07800;
   --warn-soft: #fff4d6;
   --bad: #c92a2a;
+  --bad-text: #ffffff;
   --bad-soft: #fde4e4;
   --red-team: #d6336c;
   --blue-team: #1c7ed6;
@@ -41,6 +42,7 @@
     --warn: #ffd43b;
     --warn-soft: #3a3016;
     --bad: #ff8787;
+    --bad-text: #2a0d0d;
     --bad-soft: #3d1d1d;
     --red-team: #f783ac;
     --blue-team: #74c0fc;
@@ -282,6 +284,11 @@ button:focus-visible {
   background: var(--surface-2);
   color: var(--text);
   border-color: var(--line);
+}
+
+.btn-danger {
+  background: var(--bad);
+  color: var(--bad-text);
 }
 
 .btn-play {

@@ -23,10 +23,11 @@ from .catalog import (
     BOTS, GAMEMODES, MAP_GROUP_TITLES, MAP_GROUPS, Bot, WopError, check_map_fits,
     resolve_bot, resolve_gamemode, resolve_map, resolve_team,
 )
-from .config_files import set_cfg_value
+from .config_files import reset_to_defaults, set_cfg_value
 from .online import Online
 from .platforms import PlatformBehavior, detect
-from .rcon import Rcon, ServerOffline
+from .processes import ServerProcesses
+from .rcon import Rcon
 from .server_state import GameState, Player, clean, read_state
 from .serverlog import ServerLog
 
@@ -101,6 +102,11 @@ class Game:
         if self._online is None:
             self._online = Online(self.behavior, self.rcon)
         return self._online
+
+    @property
+    def processes(self) -> ServerProcesses:
+        """This install's server processes (at most one server; nothing left once it's stopped)."""
+        return ServerProcesses(self.behavior, config.home_dir())
 
     def state(self) -> GameState:
         return read_state(self.rcon, self.log)
@@ -507,8 +513,13 @@ class Game:
 
     def start_server(self, wait: float = 30.0) -> dict:
         """With the WoP Server app the server runs without a window (the app shows its log); otherwise it
-        opens in its own window, like double-clicking run-server."""
-        if self.rcon.is_running(retry=True):
+        opens in its own window, like double-clicking run-server. Never a second server: one that hangs is
+        ended first."""
+        with self.processes.starting():
+            return self._start_server(wait)
+
+    def _start_server(self, wait: float) -> dict:
+        if self.processes.make_room(self.rcon):
             self.online.start_keeper()
             return {"result": "The server is already running.", "state": self.state().to_dict()}
         if self.use_log:
@@ -534,6 +545,18 @@ class Game:
                 return self._result(started, wait=3.0)
         raise WopError(f"The server was started, but it didn't answer within {int(wait)} s. {where}")
 
+    def reset_to_defaults(self) -> dict:
+        """Game settings as after installing (the server's name stays). A running server restarts with them, so
+        nothing of the old settings stays behind on it."""
+        running = bool(self.processes.servers()) or self.rcon.is_running()
+        if running:
+            self.stop_server()
+        reset_to_defaults()
+        if not running:
+            return {"result": "Back to the original game settings. The server starts with them next time."}
+        result = self.start_server()
+        return {**result, "result": "Back to the original game settings. The server restarted with them."}
+
     def set_spawn_protection(self, on: bool) -> dict:
         """InstaPad's few seconds of not getting hurt after respawning. Applies from the next respawn."""
         state = self.state()
@@ -547,17 +570,10 @@ class Game:
                             f"respawn.{note}", wait=0.2)
 
     def stop_server(self) -> dict:
-        if not self.rcon.is_running():
+        """Asked to quit, and ended if it doesn't; the internet-play helpers stop with it."""
+        if not self.processes.stop(self.rcon):
             return {"result": "The server isn't running."}
-        try:
-            self.rcon.command("quit", timeout=1.0)
-        except ServerOffline:
-            pass
-        for _ in range(10):
-            time.sleep(1.0)
-            if not self.rcon.is_running():
-                return {"result": "Server stopped."}
-        raise WopError("Sent quit, but the server is still answering.")
+        return {"result": "Server stopped."}
 
     # say/tell as typed in Quake 3 -> WoP's ssay/stell (see send_message)
     _WOP_CHAT = re.compile(r"^(say|tell)(?=\s|$)", re.IGNORECASE)

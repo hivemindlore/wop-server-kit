@@ -5,10 +5,21 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
 from .base import PlatformBehavior
+
+
+def matching_pids(ps_output: str, markers: tuple[str, ...], me: int) -> list[int]:
+    """The pids in `ps -o pid=,args=` output whose command line has every marker."""
+    pids = []
+    for line in ps_output.splitlines():
+        pid, _, args = line.strip().partition(" ")
+        if pid.isdigit() and int(pid) != me and all(m in args for m in markers):
+            pids.append(int(pid))
+    return pids
 
 
 class PosixBehavior(PlatformBehavior):
@@ -37,6 +48,19 @@ class PosixBehavior(PlatformBehavior):
         import fcntl
         fcntl.flock(handle, fcntl.LOCK_UN)
         handle.close()
+
+    def find_processes(self, *markers: str) -> list[int]:
+        try:
+            out = subprocess.run(["ps", "-axww", "-o", "pid=,args="], capture_output=True, text=True).stdout
+        except OSError:
+            return []
+        return matching_pids(out, markers, os.getpid())
+
+    def end_process(self, pid: int) -> None:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
 
     def run_script_here(self, script: Path) -> int:
         os.execv("/bin/bash", ["bash", str(script)])

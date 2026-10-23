@@ -77,6 +77,11 @@ export class ServerModel extends StateModel<ServerState> {
     await this.act('saving', 'settings.set_spawn_protection', { on })
   }
 
+  /** Game settings as after installing; a running server restarts with them. */
+  async resetToDefaults(): Promise<void> {
+    await this.act('resetting', 'settings.reset')
+  }
+
   /**
    * Friends anywhere can join (on), or only the home network (off). The first time, the kit opens playit.gg
    * in the browser; until the host approves it there (and the address is ready), the kit is asked again

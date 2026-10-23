@@ -25,7 +25,7 @@ const ALLOWED: { [M in CommandModel]: (keyof ModelCommands[M])[] } = {
   update: ['check', 'install'],
   server: [
     'start', 'stop', 'refresh', 'setName', 'setJoinPassword', 'setWeapons', 'setSpawnProtection', 'setOnline',
-    'manageOnline', 'play'
+    'manageOnline', 'play', 'resetToDefaults'
   ],
   network: ['check', 'fix'],
   commands: ['run', 'clear'],

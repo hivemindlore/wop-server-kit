@@ -266,6 +266,27 @@ export function ServerTab({ api }: { api: WopApi }) {
             </button>
           </div>
         )}
+        <div className="setting">
+          {view.reset.confirming ? (
+            <>
+              <Notice kind="warn">{view.reset.warning}</Notice>
+              <div className="inline-form">
+                <Button kind="danger" onClick={() => vm.confirmReset()}>
+                  Reset
+                </Button>
+                <Button kind="quiet" onClick={() => vm.cancelReset()}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="inline-form">
+              <Button kind="quiet" onClick={() => vm.askReset()} disabled={view.saving}>
+                {view.reset.busy ? 'Resetting...' : 'Reset to defaults'}
+              </Button>
+            </div>
+          )}
+        </div>
       </Card>
 
       {view.players.length > 0 && (

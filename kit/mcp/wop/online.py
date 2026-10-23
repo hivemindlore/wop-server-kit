@@ -30,6 +30,7 @@ from pathlib import Path
 from . import config, downloads
 from .catalog import WopError
 from .platforms import PlatformBehavior
+from .processes import ServerProcesses
 from .rcon import Rcon
 
 API_BASE = "https://api.playit.gg"
@@ -477,6 +478,7 @@ class Online:
         if not (self.available and self.wanted() and self.program().exists()):
             return False
         if not self.keeper_running():
+            ServerProcesses(self.behavior, config.home_dir()).end_stray_playit()   # left by a keeper that was ended
             # Run from home/playit, not from inside kit/: Windows can't replace a folder a program runs in,
             # and kit updates replace kit/
             mcp = Path(__file__).resolve().parents[1]

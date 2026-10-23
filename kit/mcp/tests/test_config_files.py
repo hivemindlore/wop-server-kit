@@ -67,3 +67,26 @@ def test_save_as_startup_needs_markers(cfg_dir):
     (cfg_dir / "server-friends.cfg").write_text("map wop_padgarden\n", encoding="utf-8")
     with pytest.raises(WopError, match="startup game"):
         config_files.save_as_startup(read_state(FakeRcon()), cfg_dir)
+
+
+def test_reset_to_defaults_keeps_name_and_admin_password(cfg_dir):
+    server_cfg = cfg_dir / "server-friends.cfg"
+    config_files.set_cfg_value(server_cfg, "sv_hostname", "Bros LAN")
+    config_files.set_cfg_value(server_cfg, "g_password", "pizza")
+    config_files.set_cfg_value(server_cfg, "g_instaPad", "1")
+    changed = server_cfg.read_text(encoding="utf-8")
+    config_files.reset_to_defaults(cfg_dir)
+    text = server_cfg.read_text(encoding="utf-8")
+    assert text == config_files.server_cfg_text("Bros LAN", "s3cret")
+    assert 'set g_password   ""' in text and "pizza" not in text
+    assert (cfg_dir / "teams.cfg").read_text(encoding="utf-8") == (config_files.TEMPLATES / "teams.cfg").read_text(
+        encoding="utf-8")
+    assert (cfg_dir / "mode.cfg").exists()
+    assert (cfg_dir / "server-friends.cfg.bak").read_text(encoding="utf-8") == changed
+    assert (cfg_dir / "teams.cfg.bak").read_text(encoding="utf-8") == "old\n"
+
+
+def test_reset_needs_the_admin_password(cfg_dir):
+    (cfg_dir / "server-friends.cfg").write_text('set sv_hostname "x"\n', encoding="utf-8")
+    with pytest.raises(WopError, match="admin password"):
+        config_files.reset_to_defaults(cfg_dir)

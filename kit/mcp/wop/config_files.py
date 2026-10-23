@@ -2,7 +2,8 @@
 
 save_as_startup writes the current game into teams.cfg and server-friends.cfg: only the text
 between the '// >>> startup game' and '// <<< startup game' markers in server-friends.cfg is
-replaced, and both files get a .bak copy first. set_cfg_value changes one `set` line.
+replaced, and both files get a .bak copy first. set_cfg_value changes one `set` line. reset_to_defaults
+puts the files of a fresh install back.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from pathlib import Path
 from . import config
 from .catalog import WopError, resolve_bot
 from .server_state import GameState
+
+TEMPLATES = Path(__file__).resolve().parents[2] / "server"   # kit/server: the files of a fresh install
 
 START_MARK = "// >>> startup game"
 END_MARK = "// <<< startup game"
@@ -37,6 +40,29 @@ TEAMS_HEADER = """//
 // Remove all bots first so reloading this file never creates duplicates
 kick allbots
 """
+
+
+def server_cfg_text(server_name: str, rcon_password: str) -> str:
+    """server-friends.cfg as a fresh install has it."""
+    template = (TEMPLATES / "server-friends.cfg").read_text(encoding="utf-8")
+    return template.replace("__SERVER_NAME__", server_name).replace("__RCON_PASSWORD__", rcon_password)
+
+
+def reset_to_defaults(cfg_dir: Path | None = None) -> None:
+    """server-friends.cfg, teams.cfg and mode.cfg as a fresh install has them, keeping the server's name and
+    its admin password (so the kit can still reach a running server). The old files are kept as .bak."""
+    cfg_dir = cfg_dir or config.cfg_dir()
+    server_cfg = cfg_dir / "server-friends.cfg"
+    name = config.cfg_value("sv_hostname", server_cfg) or "WoP server"
+    password = config.cfg_value("rconpassword", server_cfg)
+    if not password:
+        raise WopError(f"Can't find the admin password in {server_cfg}, so the settings can't be reset.")
+    for file in ("server-friends.cfg", "teams.cfg", "mode.cfg"):
+        if (cfg_dir / file).exists():
+            shutil.copyfile(cfg_dir / file, cfg_dir / (file + ".bak"))
+    server_cfg.write_text(server_cfg_text(name, password), encoding="utf-8")
+    for file in ("teams.cfg", "mode.cfg"):
+        shutil.copyfile(TEMPLATES / file, cfg_dir / file)
 
 
 def set_cfg_value(path: Path, name: str, value: str) -> None:

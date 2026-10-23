@@ -256,6 +256,20 @@ class WindowsBehavior(PlatformBehavior):
         if powershell(script).returncode != 0:
             raise OSError("Windows didn't start the server.")
 
+    def find_processes(self, *markers: str) -> list[int]:
+        # The query runs encoded, so this PowerShell's own command line never matches it
+        script = ("$m = @(" + ", ".join(ps_quote(m) for m in markers) + ")\n"
+                  "Get-CimInstance Win32_Process | Where-Object { $c = $_.CommandLine; $c -and -not ($m | "
+                  "Where-Object { $c.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -lt 0 }) } | "
+                  "ForEach-Object { $_.ProcessId }")
+        out = powershell(script).stdout
+        return [int(line) for line in out.split() if line.isdigit() and int(line) != os.getpid()]
+
+    def end_process(self, pid: int) -> None:
+        # /T: what it started goes too (the internet-play keeper's playit program)
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True,
+                       creationflags=CREATE_NO_WINDOW)
+
     def start_child_hidden(self, argv: list[str], cwd: Path) -> subprocess.Popen:
         return subprocess.Popen(argv, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, close_fds=True, creationflags=CREATE_NO_WINDOW)

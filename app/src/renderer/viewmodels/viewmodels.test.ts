@@ -272,6 +272,35 @@ describe('ServerViewModel settings', () => {
     expect(off.view.weapons?.note).toBe('Used when the server starts.')
   })
 
+  it('resets to the defaults only after a confirmation', async () => {
+    const { api, vm } = await viewWith({})
+    expect(vm.getSnapshot().reset.confirming).toBe(false)
+    vm.confirmReset()
+    expect(api.calls).toEqual([])
+    vm.askReset()
+    expect(vm.getSnapshot().reset.confirming).toBe(true)
+    vm.cancelReset()
+    expect(vm.getSnapshot().reset.confirming).toBe(false)
+    expect(api.calls).toEqual([])
+    vm.askReset()
+    vm.confirmReset()
+    expect(api.calls).toEqual([{ model: 'server', command: 'resetToDefaults', args: [] }])
+    expect(vm.getSnapshot().reset.confirming).toBe(false)
+  })
+
+  it('warns that the server restarts only while it runs', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({ status: running })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().reset.warning).toContain('server restarts')
+    api.push('server', serverState({ status: { ...running, running: false } }))
+    expect(vm.getSnapshot().reset.warning).not.toContain('restarts')
+    expect(vm.getSnapshot().reset.warning).toContain('server name stays')
+    api.push('server', serverState({ status: running, busy: 'resetting' }))
+    expect(vm.getSnapshot()).toMatchObject({ reset: { busy: true }, saving: true, power: { busy: true } })
+  })
+
   it('switches weapons, but not to what is already chosen', async () => {
     const { api, vm } = await viewWith({})
     vm.chooseWeapons('regular')

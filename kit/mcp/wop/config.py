@@ -78,9 +78,9 @@ def port() -> int:
     return int(match.group(1)) if match else DEFAULT_PORT
 
 
-def _cfg_value(name: str) -> str | None:
-    """Last `set <name> "<value>"` in server-friends.cfg that isn't commented out."""
-    text = server_cfg().read_text(encoding="utf-8", errors="replace")
+def cfg_value(name: str, path: Path | None = None) -> str | None:
+    """Last `set <name> "<value>"` in server-friends.cfg (or path) that isn't commented out."""
+    text = (path or server_cfg()).read_text(encoding="utf-8", errors="replace")
     found = None
     for line in text.splitlines():
         line = line.split("//", 1)[0]
@@ -93,7 +93,7 @@ def _cfg_value(name: str) -> str | None:
 def setting(name: str) -> str | None:
     """A setting as server-friends.cfg leaves it when the server starts (None if it isn't set there)."""
     try:
-        return _cfg_value(name)
+        return cfg_value(name)
     except OSError:
         return None
 
@@ -101,15 +101,15 @@ def setting(name: str) -> str | None:
 def rcon_password() -> str:
     if os.environ.get("WOP_RCON_PASSWORD"):
         return os.environ["WOP_RCON_PASSWORD"]
-    found = _cfg_value("rconpassword")
+    found = cfg_value("rconpassword")
     if not found:
         raise RuntimeError(f"No rconpassword set in {server_cfg()}")
     return found
 
 
 def server_name() -> str:
-    return _cfg_value("sv_hostname") or "WoP server"
+    return cfg_value("sv_hostname") or "WoP server"
 
 
 def join_password() -> str:
-    return _cfg_value("g_password") or ""
+    return cfg_value("g_password") or ""

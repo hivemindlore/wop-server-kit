@@ -68,6 +68,8 @@ export interface ServerView {
     /** Once approved: open playit.gg to see and change the addresses. */
     manageLabel: string | null
   } | null
+  /** Back to the game settings of a fresh install, after a confirmation. */
+  reset: { confirming: boolean; busy: boolean; warning: string }
   notice: Notice | null
   copied: string | null
   saving: boolean
@@ -101,6 +103,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
   private editingName = false
   private nameDraft = ''
   private passwordDraft = ''
+  private confirmingReset = false
 
   constructor(api: WopApi, private readonly clipboard: Clipboard = browserClipboard) {
     super(api)
@@ -116,6 +119,8 @@ export class ServerViewModel extends ViewModel<ServerView> {
     if (!status) headline = 'Looking for your server...'
     if (busy === 'starting') headline = 'Starting your server...'
     if (busy === 'stopping') headline = 'Stopping your server...'
+    if (busy === 'resetting') headline = 'Going back to the original settings...'
+    const powerBusy = busy === 'starting' || busy === 'stopping' || busy === 'resetting'
 
     const players = status?.players ?? []
     const humans = players.filter((p) => !p.bot).length
@@ -127,10 +132,10 @@ export class ServerViewModel extends ViewModel<ServerView> {
       power: {
         on,
         known: status !== null,
-        busy: busy === 'starting' || busy === 'stopping',
+        busy: powerBusy,
         headline,
         buttonLabel: on ? 'Stop server' : 'Start server',
-        tone: busy === 'starting' || busy === 'stopping' ? 'busy' : on ? 'on' : 'off',
+        tone: powerBusy ? 'busy' : on ? 'on' : 'off',
         hint: on || !status ? '' : 'Turn it on and everyone on your network can join.'
       },
       game:
@@ -175,9 +180,17 @@ export class ServerViewModel extends ViewModel<ServerView> {
       network: describeNetwork(this.network),
       ...this.presentSettings(busy !== null),
       online: this.presentOnline(),
+      reset: {
+        confirming: this.confirmingReset,
+        busy: busy === 'resetting',
+        warning:
+          'Game mode, map, bots, weapons and the join password go back to how they were after installing. ' +
+          'Your server name stays.' +
+          (on ? ' The server restarts, so everyone playing is disconnected for a moment.' : '')
+      },
       notice: this.server?.notice ?? null,
       copied: this.copied,
-      saving: busy === 'saving',
+      saving: busy === 'saving' || busy === 'resetting',
       editingName: this.editingName,
       nameDraft: this.nameDraft,
       passwordDraft: this.passwordDraft
@@ -251,6 +264,23 @@ export class ServerViewModel extends ViewModel<ServerView> {
     const protection = this.getSnapshot().spawnProtection
     if (!protection || protection.disabled) return
     void this.api.call('server', 'setSpawnProtection', !protection.on)
+  }
+
+  askReset(): void {
+    this.confirmingReset = true
+    this.changed()
+  }
+
+  cancelReset(): void {
+    this.confirmingReset = false
+    this.changed()
+  }
+
+  confirmReset(): void {
+    if (!this.confirmingReset || this.server?.busy) return
+    this.confirmingReset = false
+    this.changed()
+    void this.api.call('server', 'resetToDefaults')
   }
 
   private presentSettings(busy: boolean): Pick<ServerView, 'weapons' | 'spawnProtection'> {

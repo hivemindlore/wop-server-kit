@@ -97,6 +97,15 @@ class PlatformBehavior(ABC):
         """Run a kit script in this text window (the setup hands over to run-server this way)."""
 
     @abstractmethod
+    def find_processes(self, *markers: str) -> list[int]:
+        """This user's running processes whose command line contains every marker (not this process itself).
+        [] when the OS can't say."""
+
+    @abstractmethod
+    def end_process(self, pid: int) -> None:
+        """End a process right away (it had its chance to quit by itself)."""
+
+    @abstractmethod
     def remove_folder_after_exit(self, folder: Path) -> None:
         """Delete the kit folder (uninstall), even though the running uv/Python live in it."""
 

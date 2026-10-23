@@ -39,8 +39,11 @@ sys.path.insert(0, str(KIT / "setup"))
 
 import ai_apps  # noqa: E402
 from wop import downloads, launcher, online  # noqa: E402
+from wop.catalog import WopError  # noqa: E402
+from wop.config_files import server_cfg_text  # noqa: E402
 from wop.downloads import fetch, sha256  # noqa: E402
 from wop.platforms import FirewallCheck, PlatformBehavior, Shortcut, detect  # noqa: E402
+from wop.processes import ServerProcesses  # noqa: E402
 
 OS: PlatformBehavior = detect()
 SETTINGS = json.loads((KIT / "kit.json").read_text(encoding="utf-8"))
@@ -185,12 +188,17 @@ def clean_name(text: str) -> str:
     return "".join(c for c in text if c.isprintable() and c not in '"\\;\ufeff').strip()[:40]
 
 
-def server_running(port: int) -> bool:
+def rcon(port: int):
+    """How to ask the server things; None before its settings exist."""
     from wop.rcon import Rcon
     try:
-        return Rcon(port=port).is_running(retry=True)
+        return Rcon(port=port)
     except Exception:  # noqa: BLE001 (no config yet, ...)
-        return False
+        return None
+
+
+def server_processes() -> ServerProcesses:
+    return ServerProcesses(OS, HOME)
 
 
 def desktop_dir() -> Path:
@@ -337,10 +345,8 @@ def ensure_server_files(inst: dict, game: Path) -> None:
     CFG.mkdir(parents=True, exist_ok=True)
     cfg = CFG / "server-friends.cfg"
     if not cfg.exists():
-        template = (KIT / "server" / "server-friends.cfg").read_text(encoding="utf-8")
         password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
-        text = template.replace("__SERVER_NAME__", inst["server_name"]).replace("__RCON_PASSWORD__", password)
-        cfg.write_text(text, encoding="utf-8")
+        cfg.write_text(server_cfg_text(inst["server_name"], password), encoding="utf-8")
     for name in ("teams.cfg", "mode.cfg"):
         if not (CFG / name).exists():
             shutil.copyfile(KIT / "server" / name, CFG / name)
@@ -734,7 +740,7 @@ def cmd_start(args) -> None:
     inst["version"] = kit_version()
     save_install(inst)
 
-    if server_running(inst["port"]):
+    if server_processes().make_room(rcon(inst["port"])):   # never a second server
         say("\nThe server is already running.")
         pause(8)
         return
@@ -748,20 +754,17 @@ def cmd_start(args) -> None:
 
 
 def stop_server(port: int) -> bool:
-    """Ask the server to quit. False if it wasn't running."""
-    from wop.rcon import Rcon, ServerOffline
-    if not server_running(port):
-        return False
+    """Stop the server and everything that runs with it. False if it wasn't running."""
     try:
-        Rcon(port=port).command("quit", timeout=1.0)
-    except ServerOffline:
-        pass
-    return True
+        return server_processes().stop(rcon(port))
+    except WopError as e:
+        say(f"   {e}")
+        return True
 
 
 def cmd_stop(_args) -> None:
     if stop_server(load_install().get("port", SETTINGS["default_port"])):
-        say("The WoP server is stopping.")
+        say("The WoP server stopped.")
     else:
         say("The WoP server isn't running.")
     pause(3)

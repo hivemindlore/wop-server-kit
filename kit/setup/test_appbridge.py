@@ -26,6 +26,9 @@ class FakeBehavior(LinuxBehavior):
     def claude_config_paths(self):
         return []
 
+    def find_processes(self, *markers):
+        return []
+
 
 class FakeRcon:
     port = 27961
@@ -210,6 +213,21 @@ def test_ai_open_and_restart(bridge, monkeypatch):
     assert opened == ["app:LM Studio"] and card["openable"] is True
     assert "Couldn't find Cursor" in ask(bridge, "ai.open", app_id="cursor")["error"]["message"]
     assert "can't be restarted" in ask(bridge, "ai.restart", app_id="lm-studio")["error"]["message"]
+
+
+def test_reset_to_defaults_with_the_server_off(bridge, root):
+    install_game(root)
+    cfg = root / "home" / "wop" / "server-friends.cfg"
+    cfg.write_text(cfg.read_text() + 'set g_password "pizza"\n')
+    result = ask(bridge, "settings.reset")["result"]
+    assert "next time" in result["result"]
+    text = cfg.read_text()
+    assert 'set sv_hostname "Kim\'s server"' in text and 'set rconpassword "x"' in text and "pizza" not in text
+    assert (root / "home" / "wop" / "teams.cfg").exists()
+
+
+def test_reset_needs_an_installed_game(bridge):
+    assert ask(bridge, "settings.reset")["error"]["message"] == "The server isn't set up yet."
 
 
 class ClaudeBehavior(FakeBehavior):

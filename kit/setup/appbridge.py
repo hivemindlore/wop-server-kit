@@ -64,6 +64,7 @@ class Bridge:
             "settings.get": self.settings_get,
             "settings.set_weapons": self.settings_set_weapons,
             "settings.set_spawn_protection": self.settings_set_spawn_protection,
+            "settings.reset": self.settings_reset,
             "network.check": self.network_check,
             "network.fix": self.network_fix,
             "online.status": self.online_status,
@@ -257,6 +258,11 @@ class Bridge:
             self.game.set_spawn_protection(on)
             return {"result": f"{what}, from the next respawn."}
         return {"result": f"{what}: saved for the next start."}
+
+    def settings_reset(self) -> dict:
+        """Game mode, map, bots, weapons and join password as after installing; the server's name stays."""
+        self._require_game()
+        return self.game.reset_to_defaults()
 
     def set_join_password(self, password: str) -> dict:
         """Kept after a restart too (written to server-friends.cfg), unlike the Claude tool."""

@@ -167,7 +167,7 @@ export interface ServerState {
   joinInfo: JoinInfo | null
   settings: GameSettings | null
   online: OnlineStatus | null
-  busy: 'starting' | 'stopping' | 'saving' | null
+  busy: 'starting' | 'stopping' | 'saving' | 'resetting' | null
   /** Switching internet play on or off (on its own, so the server can be started meanwhile). */
   onlineBusy: boolean
   notice: Notice | null
@@ -234,6 +234,8 @@ export interface ModelCommands {
     /** Opens playit.gg in the browser, to see and change the internet addresses. */
     manageOnline(): Promise<void>
     play(): Promise<void>
+    /** Game settings as after installing (the name stays); a running server restarts with them. */
+    resetToDefaults(): Promise<void>
   }
   network: {
     check(): Promise<void>

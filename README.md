@@ -28,7 +28,7 @@ The easiest way: one app that sets everything up and lets you run your server wi
 
 | Tab | What you do there |
 |-----|-------------------|
-| **Server** | Turn the server on and off, **Play World of PADMAN** yourself, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Switch on **Friends anywhere can join** to let friends in other homes join over the internet too. Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. |
+| **Server** | Turn the server on and off, **Play World of PADMAN** yourself, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Switch on **Friends anywhere can join** to let friends in other homes join over the internet too. Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. **Reset to defaults** puts the game mode, map, bots, weapons and join password back to how they were after installing (the name stays). |
 | **Logs** | Everything the server says, live, with a search box. |
 | **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
 | **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |

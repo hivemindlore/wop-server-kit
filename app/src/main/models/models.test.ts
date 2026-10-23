@@ -193,6 +193,23 @@ describe('ServerModel settings', () => {
     expect(bridge.calls.find((c) => c.method === 'settings.set_spawn_protection')?.params).toEqual({ on: false })
   })
 
+  it('resets to the defaults and reads everything again', async () => {
+    const states: (string | null)[] = []
+    const bridge = new FakeBridge({
+      'settings.reset': () => ({ result: 'Back to the original game settings. The server restarted with them.' }),
+      'settings.get': () => ({ running: true, instapad: false }),
+      'server.status': () => ({ running: true }),
+      'server.join_info': () => ({})
+    })
+    const model = new ServerModel(bridge)
+    model.subscribe((state) => states.push(state.busy))
+    await model.resetToDefaults()
+    expect(states).toContain('resetting')
+    expect(model.getState().busy).toBeNull()
+    expect(model.getState().notice?.text).toContain('original game settings')
+    expect(bridge.methods()).toEqual(expect.arrayContaining(['settings.reset', 'server.status', 'settings.get']))
+  })
+
   it('reads the settings again when someone else changed the weapons', async () => {
     let weapons = 'regular'
     const bridge = new FakeBridge({
