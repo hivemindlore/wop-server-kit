@@ -39,7 +39,19 @@ export class GameModel extends StateModel<GameState> {
   }
 
   async apply(choice: GameChoice): Promise<void> {
-    await this.act('applying', 'game.set', { ...choice })
+    // The kit's names (snake_case); test_appbridge.py checks game.set accepts exactly these
+    await this.act('applying', 'game.set', {
+      gamemode: choice.gamemode,
+      maps: choice.maps,
+      weapons: choice.weapons,
+      spawn_protection: choice.spawnProtection,
+      red: choice.red,
+      blue: choice.blue,
+      bots: choice.bots,
+      skill: choice.skill,
+      pointlimit: choice.pointlimit,
+      timelimit: choice.timelimit
+    })
   }
 
   async restartMatch(): Promise<void> {

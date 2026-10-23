@@ -105,11 +105,14 @@ export class GameViewModel extends ViewModel<GameView> {
   private typed: Partial<Record<Limit, string>> = {}
   /** Changed since the last Apply changes. */
   private dirty = false
+  /** Apply changes was pressed: 'sent' until the game model starts on it, then 'running' until it's done. */
+  private applying: 'sent' | 'running' | null = null
 
   constructor(api: WopApi) {
     super(api)
     this.mirror('game', (state) => {
       this.game = state
+      this.followApply(state)
       this.startDraft()
       this.fillWeapons()
     })
@@ -264,6 +267,15 @@ export class GameViewModel extends ViewModel<GameView> {
     if (this.draft.protection === null) this.draft.protection = settings.spawn_protection
   }
 
+  /** When Apply changes didn't work, the changes are still only on the page. */
+  private followApply(state: GameState): void {
+    if (this.applying === 'sent' && state.busy === 'applying') this.applying = 'running'
+    else if (this.applying === 'running' && state.busy === null) {
+      this.applying = null
+      if (state.notice?.kind === 'error') this.dirty = true
+    }
+  }
+
   /** A change on the page: shown, and not on the server until Apply changes. */
   private edited(): void {
     this.dirty = true
@@ -382,6 +394,7 @@ export class GameViewModel extends ViewModel<GameView> {
     const settings = this.server?.settings
     const instapad = d.instapad ?? settings?.instapad ?? this.server?.status?.weapons === 'instapad'
     this.dirty = false
+    this.applying = 'sent'
     this.changed()
     void this.api.call('game', 'apply', {
       gamemode: d.mode,

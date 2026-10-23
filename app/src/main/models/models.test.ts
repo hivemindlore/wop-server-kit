@@ -682,7 +682,12 @@ describe('GameModel', () => {
       spawnProtection: true, red: ['PADMAN'], blue: [], bots: [], skill: 3,
       pointlimit: 8, timelimit: 16 }
     await model.apply(choice)
-    expect(bridge.calls).toEqual([{ method: 'game.set', params: choice }, { method: 'game.rotation', params: {} }])
+    // The kit's names: kit/setup/test_appbridge.py (test_game_set_takes_what_the_app_sends) checks the same list
+    expect(bridge.calls).toEqual([
+      { method: 'game.set', params: { gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'], weapons: 'regular',
+        spawn_protection: true, red: ['PADMAN'], blue: [], bots: [], skill: 3, pointlimit: 8, timelimit: 16 } },
+      { method: 'game.rotation', params: {} }
+    ])
     expect(model.getState().rotation).toEqual(['wop_padbaseCTL', 'wop_journeyCTL'])   // the new loop
     expect(busy).toContain('applying')
     expect(model.getState()).toMatchObject({

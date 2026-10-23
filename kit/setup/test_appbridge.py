@@ -417,3 +417,17 @@ def test_game_rotation_and_saving_it(bridge, root, monkeypatch):
     monkeypatch.setattr(bridge.game, "state", lambda: "state")
     assert "starts with this game" in ask(bridge, "game.save_as_startup")["result"]["result"]
     assert saved == [["wop_padkitchen", "wop_padship"]]
+
+
+def test_game_set_takes_what_the_app_sends(bridge, root, monkeypatch):
+    """The exact names the app's GameModel.apply sends (app/src/main/models/models.test.ts checks the same list)."""
+    install_game(root)
+    bridge.game.rcon.running = True
+    got = {}
+    monkeypatch.setattr(bridge.game, "set_game", lambda gamemode, **kwargs: got.update(kwargs) or {"result": "ok"})
+    sent = {"gamemode": "ctl", "maps": ["wop_padbaseCTL", "wop_journeyCTL"], "weapons": "regular",
+            "spawn_protection": True, "red": ["PADMAN"], "blue": [], "bots": [], "skill": 3, "pointlimit": 8,
+            "timelimit": 16}
+    answer = ask(bridge, "game.set", **sent)
+    assert "error" not in answer, answer
+    assert got["spawn_protection"] is True and got["weapons"] == "regular" and got["maps"] == sent["maps"]

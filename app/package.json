@@ -1,7 +1,7 @@
 {
   "name": "wop-server",
   "productName": "WoP Server",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Run and manage your own World of PADMAN server for everyone on your home network.",
   "license": "MIT",
   "author": {
