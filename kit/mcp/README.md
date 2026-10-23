@@ -21,7 +21,7 @@ server state after every change. You don't need to know any names or commands.
 | `change_map`, `set_weapons`, `set_limits`, `restart_match` | Smaller changes |
 | `set_teams`, `add_bots`, `remove_bots`, `move_player` | Bot lineup and teams |
 | `kick_player`, `send_message`, `set_join_password` | Player admin |
-| `start_server`, `stop_server` | Opens the server window (`run-server.cmd` / `.command`) / stops the server |
+| `start_server`, `stop_server` | Starts the server (in the background when the WoP Server app is used, otherwise in its own window) / stops it |
 | `run_console_command` | Any other console command (quit, killserver and the rcon password are blocked) |
 | `save_as_startup` | Makes the current setup the startup game (rewrites `teams.cfg` and the marked block in `server-friends.cfg`, keeps `.bak` copies) |
 
@@ -32,8 +32,10 @@ server state after every change. You don't need to know any names or commands.
 - The server only answers about one rcon packet a second after a short burst. So a change is
   written to `home\wop\mcp-batch.cfg` and run with a single `exec`, and its result is read from
   `home\wop\qconsole.log`. The kit always runs the server with `logfile 2`; without the log everything still works, just slowly.
-- `start_server` asks Windows Explorer to open `run-server.cmd` (Mac: Terminal opens `run-server.command`),
-  the same as double-clicking it, so the server keeps running when you close Claude.
+- `start_server`: with the WoP Server app (`hidden_server` in `install.json`) the server starts without a window
+  (`wop/launcher.py`), and the app shows its log. Otherwise it opens `run-server.cmd` (Mac: `.command`, Linux: `.sh`)
+  in its own window, like double-clicking it. Either way the server keeps running when Claude closes.
+- Everything that differs per OS is in `wop/platforms/` (one behavior class per OS; `detect()` picks it).
 - Bots moved to another team are removed and re-added there, because the game puts a bot moved with
   `forceteam` back on its old team at the next map restart.
 

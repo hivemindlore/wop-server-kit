@@ -5,23 +5,23 @@ The kit installs everything in one folder (Windows: %LOCALAPPDATA%\\WoPServer, M
 
     <root>/kit/mcp/...            this MCP server
     <root>/home/wop/              server-friends.cfg, teams.cfg, logs
-    <root>/Start WoP Server.cmd   (Mac: .command) starts the game server
+    <root>/install.json           port, game folder, server name (written by the setup)
+    <root>/run-server.cmd         (Mac: .command, Linux: .sh) runs the game server in a window
 
 Claude Desktop passes WOP_HOME and WOP_START_SCRIPT, so nothing is guessed. Without them the
-paths are worked out from this file's location. The port is read from the start script and the
-rcon password from server-friends.cfg, so they're never stored twice.
+paths are worked out from this file's location. The port is read from install.json (or the start
+script) and the rcon password from server-friends.cfg, so they're never stored twice.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PORT = 27960
-IS_MAC = sys.platform == "darwin"
 
 
 def home_dir() -> Path:
@@ -41,17 +41,36 @@ def teams_cfg() -> Path:
     return cfg_dir() / "teams.cfg"
 
 
-def start_script() -> Path:
+def root_dir() -> Path:
+    """The kit's install folder (home/ is inside it)."""
+    return home_dir().parent
+
+
+def install() -> dict:
+    """install.json: port, game_dir, server_name, ... ({} before the first setup)."""
+    try:
+        data = json.loads((root_dir() / "install.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def start_script(name: str) -> Path:
+    """The script that runs the server in a window; name is the OS's file name for it (run-server.cmd...)."""
     if os.environ.get("WOP_START_SCRIPT"):
         return Path(os.environ["WOP_START_SCRIPT"])
-    return ROOT / ("Start WoP Server.command" if IS_MAC else "Start WoP Server.cmd")
+    return root_dir() / name
 
 
 def port() -> int:
     if os.environ.get("WOP_PORT"):
         return int(os.environ["WOP_PORT"])
+    if isinstance(install().get("port"), int):
+        return install()["port"]
+    if not os.environ.get("WOP_START_SCRIPT"):
+        return DEFAULT_PORT
     try:
-        text = start_script().read_text(encoding="utf-8", errors="replace")
+        text = Path(os.environ["WOP_START_SCRIPT"]).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return DEFAULT_PORT
     match = (re.search(r'(?im)^\s*(?:set\s+)?"?PORT=(\d+)', text)

@@ -8,6 +8,35 @@ game, sets up a server, and connects it to the Claude Desktop app. One file, a f
 
 ---
 
+## The WoP Server app (Windows, Mac, Linux)
+
+The easiest way: one app that sets everything up and lets you run your server with a few clicks.
+
+1. **Download** the app for your computer from the
+   [latest release](https://github.com/hivemindlore/wop-server-kit/releases/latest):
+   **Windows** `WoP-Server-Setup-….exe` · **Mac** `WoP-Server-….dmg` (`arm64` for M1/M2/M3/M4, `x64` for Intel) ·
+   **Linux** `WoP-Server-….AppImage` (or the `.deb`).
+2. **Open it.** The first time, it asks for a name for your server and downloads World of PADMAN (1.2 GB).
+   - Windows may say "*Windows protected your PC*": click **More info** → **Run anyway**.
+   - Mac may say the app "*can't be opened*": right-click the app → **Open** → **Open**.
+   - Linux: right-click the `.AppImage` → Properties → allow it to run as a program, then double-click it.
+3. **That's it.** The app has four tabs:
+
+| Tab | What you do there |
+|-----|-------------------|
+| **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server or set a join password. |
+| **Logs** | Everything the server says, live, with a search box. |
+| **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
+| **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then just ask it to change the game. |
+
+The server runs in the background: closing the app doesn't stop it. Open the app again to see it or turn it off.
+The app and the files below install the same server, so you can switch between them.
+
+## Without the app
+
+You can also set up the server with a single file and run it from desktop shortcuts. The server then shows in its
+own window.
+
 ## Windows (10 or 11)
 
 **You need:** internet, about 3 GB of free disk space, and a (free) [Claude account](https://claude.ai) if you
@@ -65,6 +94,23 @@ Your desktop then has a **World of PADMAN** folder with **Play World of PADMAN**
 it with **Start WoP Server**, **Stop WoP Server**, **WoP Server Help** and **WoP Server Troubleshooting**.
 Double-click them.
 
+## Linux (beta)
+
+> The Linux version hasn't been tested on every distribution yet.
+
+**You need:** a 64-bit Linux desktop (Ubuntu, Fedora, Mint, …), internet, about 3 GB of free disk space.
+
+1. Open a **Terminal**.
+2. Paste this line and press Enter:
+   ```
+   curl -fsSL https://raw.githubusercontent.com/hivemindlore/wop-server-kit/main/start-wop-server.sh | bash
+   ```
+3. Answer the questions. If your firewall (ufw or firewalld) is on, it asks "*Do you want to allow this?*" and then
+   your password, so the players on your network can connect.
+
+Your desktop then has the same **World of PADMAN** folder as on Windows and Mac. Claude Desktop isn't available
+for Linux; use the app's **AI** tab to connect another AI app (for example LM Studio).
+
 ---
 
 ## How do the others join?
@@ -118,8 +164,13 @@ Mac: paste this in Terminal and type `yes` when asked:
 ```
 "$HOME/Library/Application Support/WoPServer/wopkit.sh" uninstall
 ```
+Linux: paste this in Terminal and type `yes` when asked:
+```
+"${XDG_DATA_HOME:-$HOME/.local/share}/WoPServer/wopkit.sh" uninstall
+```
 
-This removes the server, its settings, the World of PADMAN desktop folder, the firewall rule and the Claude connection.
+This removes the server, its settings, the World of PADMAN desktop folder, the firewall rule and the AI connections.
+If you use the app, remove the app itself the usual way afterwards.
 A World of PADMAN game you had installed yourself stays.
 
 ---
@@ -129,20 +180,38 @@ A World of PADMAN game you had installed yourself stays.
 <details>
 <summary>How the kit works, releasing updates, testing</summary>
 
-- **Files:** `start-wop-server.bat` (Windows: a cmd/PowerShell file) and `start-wop-server.sh` (Mac) only fetch
+- **Files:** `start-wop-server.bat` (Windows: a cmd/PowerShell file) and `start-wop-server.sh` (Mac, Linux) only fetch
   [uv](https://github.com/astral-sh/uv) (pinned version + SHA-256) and this repo's `kit/` folder, then run
   `kit/setup/wopkit.py`. That script (Python standard library only) does everything else: downloads the official
   WoP 1.7.0 zip from the PadWorld GitHub release (SHA-256 checked), writes the server config with a random rcon
-  password, checks on every start that the Windows Firewall / macOS application firewall lets the players in (and
-  offers to fix the kit rule, block rules and "block all incoming"), prepares and registers
+  password, checks on every start that the firewall (Windows Firewall / macOS application firewall / ufw or
+  firewalld) lets the players in (and offers to fix it), prepares and registers
   the MCP server (`kit/mcp`) in Claude Desktop, makes the desktop folder with the shortcuts and starts the server.
-- **Install folder:** `%LOCALAPPDATA%\WoPServer` / `~/Library/Application Support/WoPServer`: `kit/` (replaced on
-  update), `home/wop/` (the host's settings; never touched by updates), `game/`, `tools/uv`, `python/`, `cache/`.
+- **One OS behavior per platform (Strategy pattern):** everything that differs between Windows, Mac and Linux
+  (paths, firewall, elevation, shortcuts, starting the server, Claude Desktop) lives in `kit/mcp/wop/platforms/`
+  (`WindowsBehavior`, `MacBehavior`, `LinuxBehavior`, picked once by `detect()` and passed in). The app does the same
+  for its few OS differences in `app/src/main/platform/`. No other code checks the OS.
+- **The app** (`app/`, Electron + React + TypeScript, MVVM): views (`src/renderer/views`) only draw;
+  view models (`src/renderer/viewmodels`) turn model state into what's shown; the model is the main process
+  (`src/main/models`) plus the kit itself, reached through `kit/setup/appbridge.py` (JSON lines over stdin/stdout,
+  run with the kit's uv). The app ships a copy of `kit/` and uv, and installs them into the same folder the
+  start scripts use (only if its kit is newer). With the app, the server runs without a window
+  (`hidden_server` in `install.json`, also used by the Claude connection) and its log shows in the Logs tab.
+  Try it without touching your real setup (Node.js 22.12+): `cd app && npm install && npm run sandbox`. That runs
+  the app on `app/.sandbox` (port 27961, your installed game reused read-only, Claude Desktop settings and
+  shortcuts kept in the sandbox) with the repo's current `kit/`; `npm run sandbox -- --fresh` starts with the full
+  first-time setup instead. `npm run dev` runs it on the real install. Tests: `npm test`, `npm run typecheck`.
+  Release: tag `app-vX.Y.Z` and push; `.github/workflows/app.yml` builds the installers into a GitHub release.
+  The installers aren't code-signed yet (Windows SmartScreen and macOS Gatekeeper warn the first time).
+- **Install folder:** `%LOCALAPPDATA%\WoPServer` / `~/Library/Application Support/WoPServer` /
+  `~/.local/share/WoPServer`: `kit/` (replaced on update), `home/wop/` (the host's settings; never touched by
+  updates), `game/`, `tools/uv`, `python/`, `cache/`.
 - **Releasing an update:** change files under `kit/`, raise the number in `kit/VERSION`, push to `main`.
   Every host gets it the next time they use **Start WoP Server**.
 - **Repo name:** `hivemindlore/wop-server-kit` appears in `kit/kit.json`, both start scripts and this README.
-- **Tests:** `kit/mcp/tests` (MCP server, `pytest`), `kit/setup/test_wopkit.py` (setup helpers), and
-  `kit/mcp/tests/integration.py` (every MCP tool against a real test server).
+- **Tests:** `kit/mcp/tests` (MCP server, `pytest`), `kit/setup/test_*.py` (setup helpers, OS behaviors, AI app
+  connections, the app bridge), `kit/mcp/tests/integration.py` (every MCP tool against a real test server) and
+  `app` (`npm test`). CI runs them all on Windows, Mac and Linux.
   For a "fresh friend" run on your own PC without touching your real setup, set these before running the .bat:
   `WOP_KIT_ROOT` (test folder), `WOP_KIT_URL` (a local zip of this repo), `WOP_PORT` (e.g. 27961),
   `WOP_CLAUDE_CONFIG` (a copy of the Claude config), `WOP_NO_CLAUDE_LAUNCH=1`, `WOP_DESKTOP` (test folder),

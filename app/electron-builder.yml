@@ -1,0 +1,46 @@
+appId: net.worldofpadman.serverkit
+productName: WoP Server
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/kit
+    to: kit
+    filter: ["**/*", "!**/__pycache__/**", "!**/tests/**", "!**/test_*.py"]
+publish:
+  provider: github
+  owner: hivemindlore
+  repo: wop-server-kit
+
+win:
+  target: nsis
+  extraResources:
+    - from: resources/uv/win-x64
+      to: uv/win-x64
+nsis:
+  oneClick: true
+  perMachine: false          # no admin rights needed to install
+  createDesktopShortcut: always
+  shortcutName: WoP Server
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.games
+  extraResources:
+    - from: resources/uv/mac-arm64
+      to: uv/mac-arm64
+    - from: resources/uv/mac-x64
+      to: uv/mac-x64
+
+linux:
+  target: [AppImage, deb]
+  category: Game
+  maintainer: WoP Server Kit
+  extraResources:
+    - from: resources/uv/linux-x64
+      to: uv/linux-x64

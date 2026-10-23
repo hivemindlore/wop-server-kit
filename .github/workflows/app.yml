@@ -1,0 +1,67 @@
+name: tests and app
+
+on:
+  push:
+    branches: [main]
+    tags: ['app-v*']
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.9.2'
+      - name: Kit tests
+        shell: bash
+        run: |
+          cd kit/mcp && uv run --no-project --with pytest --with "mcp==2.3.0" python -m pytest tests -q
+          cd ../setup && uv run --no-project --with pytest python -m pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: App tests
+        working-directory: app
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/app-v')
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+          - os: macos-latest
+            args: --mac
+          - os: ubuntu-latest
+            args: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build the installer
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm ci
+          node scripts/prepare-resources.mjs --all
+          npx electron-vite build
+          npx electron-builder ${{ matrix.args }} --publish always

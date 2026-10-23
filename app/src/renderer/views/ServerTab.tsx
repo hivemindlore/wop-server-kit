@@ -1,0 +1,190 @@
+import { useMemo } from 'react'
+import type { WopApi } from '@shared/api'
+import { ServerViewModel } from '../viewmodels/ServerViewModel'
+import { useActive, useViewModel } from '../viewmodels/ViewModel'
+import { Button, Card, CopyValue, Notice, Spinner } from './components'
+import { NetworkCard } from './NetworkCard'
+
+export function ServerTab({ api }: { api: WopApi }) {
+  const vm = useActive(useMemo(() => new ServerViewModel(api), [api]))
+  const view = useViewModel(vm)
+  const { power, join } = view
+
+  return (
+    <div className="grid">
+      <Card className={`power power-${power.tone}`}>
+        <div className="power-row">
+          <div>
+            <h1>{power.headline}</h1>
+            {view.game ? (
+              <p className="game-line">
+                <strong>{view.game.mode}</strong> on <strong>{view.game.map}</strong> · {view.game.weapons} ·{' '}
+                {view.game.limits}
+              </p>
+            ) : (
+              power.hint && <p className="muted">{power.hint}</p>
+            )}
+            {view.playersSummary && <p className="muted">{view.playersSummary}</p>}
+          </div>
+          <button
+            className={`switch ${power.on ? 'switch-on' : ''}`}
+            role="switch"
+            aria-checked={power.on}
+            aria-label={power.buttonLabel}
+            disabled={power.busy || !power.known}
+            onClick={() => vm.toggle()}
+          >
+            <span className="switch-knob">{power.busy && <Spinner />}</span>
+          </button>
+        </div>
+        {view.notice && <Notice kind={view.notice.kind}>{view.notice.text}</Notice>}
+        <div className="power-actions">
+          <Button kind="quiet" onClick={() => vm.play()}>
+            Play on this computer
+          </Button>
+        </div>
+      </Card>
+
+      <Card title="How others join">
+        {!join ? (
+          <p className="muted">
+            <Spinner /> Looking up your network...
+          </p>
+        ) : (
+          <>
+            <ol className="steps">
+              <li>
+                Everyone needs World of PADMAN 1.7.0 (free):{' '}
+                <a href={join.downloadUrl} onClick={(e) => (e.preventDefault(), vm.openUrl(join.downloadUrl))}>
+                  download it here
+                </a>
+                , and has to be on the same Wi-Fi or network as this computer.
+              </li>
+              <li>
+                In the game: <strong>Multiplayer</strong> → set the source to <strong>LAN</strong> → pick{' '}
+                <strong>{join.serverName}</strong> → <strong>Join</strong>.
+              </li>
+              <li>Not in the list? Click <strong>Specify</strong> in the Multiplayer screen and fill in:</li>
+            </ol>
+            {join.addresses.map((a) => (
+              <CopyValue
+                key={a.address}
+                label={a.primary ? 'Address' : 'Other network'}
+                value={a.address}
+                hint={a.connection}
+                copied={view.copied === a.address}
+                onCopy={() => vm.copy(a.address)}
+              />
+            ))}
+            <CopyValue label="Port" value={join.port} copied={view.copied === join.port} onCopy={() => vm.copy(join.port)} />
+            {join.connectLine && (
+              <CopyValue
+                label="Or type"
+                value={join.connectLine}
+                hint="in the game's console (press ~)"
+                copied={view.copied === join.connectLine}
+                onCopy={() => vm.copy(join.connectLine!)}
+              />
+            )}
+            {join.passwordLine && (
+              <CopyValue
+                label="Password"
+                value={join.passwordLine}
+                hint="players type this in the console first"
+                copied={view.copied === join.passwordLine}
+                onCopy={() => vm.copy(join.passwordLine!)}
+              />
+            )}
+            {join.warning && <Notice kind="warn">{join.warning}</Notice>}
+          </>
+        )}
+      </Card>
+
+      <NetworkCard
+        view={view.network}
+        onFix={() => vm.fixNetwork()}
+        onCheck={() => vm.checkNetwork()}
+        onOpenUrl={(url) => vm.openUrl(url)}
+      />
+
+      <Card title="Settings">
+        <div className="setting">
+          <span className="setting-label">Server name</span>
+          {view.editingName ? (
+            <form
+              className="inline-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void vm.saveName()
+              }}
+            >
+              <input autoFocus value={view.nameDraft} onChange={(e) => vm.setNameDraft(e.target.value)} />
+              <Button kind="primary" type="submit" disabled={!view.nameDraft.trim()}>
+                Save
+              </Button>
+              <Button kind="quiet" onClick={() => vm.cancelName()}>
+                Cancel
+              </Button>
+            </form>
+          ) : (
+            <div className="inline-form">
+              <strong>{join?.serverName ?? ''}</strong>
+              <Button kind="quiet" onClick={() => vm.editName()} disabled={view.saving}>
+                Rename
+              </Button>
+            </div>
+          )}
+        </div>
+        <div className="setting">
+          <span className="setting-label">Join password</span>
+          <form
+            className="inline-form"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void vm.savePassword()
+            }}
+          >
+            <input
+              value={view.passwordDraft}
+              placeholder={join?.password ? 'New password' : 'None: anyone on your network can join'}
+              onChange={(e) => vm.setPasswordDraft(e.target.value)}
+            />
+            <Button kind="secondary" type="submit" disabled={!view.passwordDraft || view.saving}>
+              Set
+            </Button>
+            {join?.password && (
+              <Button kind="quiet" onClick={() => vm.removePassword()} disabled={view.saving}>
+                Remove password
+              </Button>
+            )}
+          </form>
+        </div>
+      </Card>
+
+      {view.players.length > 0 && (
+        <Card title="Who's on" className="span-2">
+          <table className="players">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Team</th>
+                <th></th>
+                <th className="num">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.players.map((p) => (
+                <tr key={p.key}>
+                  <td>{p.name}</td>
+                  <td>{p.team && <span className={`team team-${p.teamTone}`}>{p.team}</span>}</td>
+                  <td className="muted">{p.kind}</td>
+                  <td className="num">{p.score}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  )
+}

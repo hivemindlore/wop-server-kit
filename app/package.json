@@ -1,0 +1,35 @@
+{
+  "name": "wop-server",
+  "productName": "WoP Server",
+  "version": "2.0.0",
+  "description": "Run and manage your own World of PADMAN server for everyone on your home network.",
+  "license": "MIT",
+  "author": "WoP Server Kit",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "resources": "node scripts/prepare-resources.mjs",
+    "dev": "npm run resources && electron-vite dev",
+    "sandbox": "node scripts/sandbox.mjs",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "dist": "npm run resources && electron-vite build && electron-builder --publish never"
+  },
+  "dependencies": {
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
+  }
+}

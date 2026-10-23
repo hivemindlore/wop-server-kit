@@ -11,14 +11,14 @@ and connects Claude Desktop to it.
     wopkit.py uninstall   remove everything again
 
 Started by start-wop-server.bat / start-wop-server.sh (first time) and by the shortcuts in the
-"World of PADMAN" folder on the desktop.
+"World of PADMAN" folder on the desktop. The WoP Server app uses the same steps through appbridge.py.
 Only uses the Python standard library; uv provides Python.
+Everything that differs between Windows, Mac and Linux is in kit/mcp/wop/platforms (OS below).
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import getpass
 import hashlib
 import json
@@ -37,28 +37,37 @@ from pathlib import Path
 KIT = Path(__file__).resolve().parents[1]          # <root>/kit
 ROOT = KIT.parent
 sys.path.insert(0, str(KIT / "mcp"))
+sys.path.insert(0, str(KIT / "setup"))
 
-IS_WIN = sys.platform == "win32"
-IS_MAC = sys.platform == "darwin"
+import ai_apps  # noqa: E402
+from wop import launcher  # noqa: E402
+from wop.platforms import FirewallCheck, PlatformBehavior, Shortcut, detect  # noqa: E402
+
+OS: PlatformBehavior = detect()
 SETTINGS = json.loads((KIT / "kit.json").read_text(encoding="utf-8"))
 
 HOME = ROOT / "home"
 CFG = HOME / "wop"
-TOOLS = ROOT / "tools"
-UV = TOOLS / ("uv.exe" if IS_WIN else "uv")
 INSTALL_JSON = ROOT / "install.json"
-RUN_SERVER = ROOT / ("run-server.cmd" if IS_WIN else "run-server.command")
-LAUNCHER = ROOT / ("wopkit.cmd" if IS_WIN else "wopkit.sh")
 WOPKIT = KIT / "setup" / "wopkit.py"
-SERVER_BIN = Path("wopded.x86_64.exe") if IS_WIN else Path("wopded.x86_64.app/Contents/MacOS/wopded.x86_64")
-CLIENT_BIN = Path("wop.x86_64.exe") if IS_WIN else Path("wop.x86_64.app")
-FIREWALL_RULE = "WoP Server Kit"
-MAC_FIREWALL = "/usr/libexec/ApplicationFirewall/socketfilterfw"
 LAN_PORTS = range(27960, 27964)                     # the ports the game's LAN list searches
 TROUBLESHOOTING_URL = f"https://github.com/{SETTINGS['repo']}/blob/{SETTINGS['branch']}/kit/docs/troubleshooting.md"
 SHORTCUT_FOLDER = "World of PADMAN"                 # on the desktop
 SERVER_SUBFOLDER = "WOP-server"                     # inside it: Start, Stop, Help, Troubleshooting
 NEED_FREE_GB = 3
+
+
+def uv() -> Path:
+    return ROOT / "tools" / OS.uv_name
+
+
+def run_server_script() -> Path:
+    return ROOT / OS.run_script_name
+
+
+def launcher_script() -> Path:
+    return ROOT / OS.launcher_name
+
 
 # uv keeps its Python and packages inside the kit folder, so uninstalling removes everything
 UV_ENV = {
@@ -68,24 +77,16 @@ UV_ENV = {
 }
 os.environ.update(UV_ENV)
 os.environ["WOP_HOME"] = str(HOME)
-os.environ["WOP_START_SCRIPT"] = str(RUN_SERVER)
+os.environ["WOP_START_SCRIPT"] = str(run_server_script())
 
 
 # --------------------------------------------------------------------------- talking to the user
 
-def say(text: str = "") -> None:
-    print(text, flush=True)
-
-
-def step(text: str) -> None:
-    say(f"\n>> {text}")
-
-
 def _tty_input(prompt: str) -> str:
     """input() that also works under `curl ... | bash`, where stdin is the script itself."""
-    if IS_WIN or (sys.stdin and sys.stdin.isatty()):
+    if OS.keyboard_is_stdin or (sys.stdin and sys.stdin.isatty()):
         try:
-            return input(prompt).lstrip("﻿")  # piped input from PowerShell starts with a BOM
+            return input(prompt).lstrip("\ufeff")  # piped input from PowerShell starts with a BOM
         except EOFError:
             return ""
     try:
@@ -97,24 +98,58 @@ def _tty_input(prompt: str) -> str:
         return ""
 
 
+class ConsoleUi:
+    """The text window. The app bridge swaps in its own Ui (no questions, progress as events)."""
+    terminal = True     # questions and passwords can be typed here
+
+    def say(self, text: str = "") -> None:
+        print(text, flush=True)
+
+    def progress(self, done: int, total: int) -> None:
+        print(f"\r   {int(done * 100 / total):3d}%  ({done / 1e9:.2f} of {total / 1e9:.2f} GB)", end="", flush=True)
+
+    def progress_done(self) -> None:
+        print(flush=True)
+
+    def ask(self, question: str, default: str) -> str:
+        answer = _tty_input(f"{question} [{default}]: ").strip()
+        return answer or default
+
+    def yes(self, question: str, default: bool = True) -> bool:
+        if os.environ.get("WOP_ASSUME_YES"):
+            return default
+        hint = "Y/n" if default else "y/N"
+        answer = _tty_input(f"{question} ({hint}): ").strip().lower()
+        return default if not answer else answer.startswith(("y", "j"))
+
+    def pause(self, seconds: float | None = None) -> None:
+        if seconds is not None:
+            time.sleep(seconds)
+        elif not os.environ.get("WOP_ASSUME_YES"):
+            _tty_input("Press Enter to close this window...")
+
+
+UI = ConsoleUi()
+
+
+def say(text: str = "") -> None:
+    UI.say(text)
+
+
+def step(text: str) -> None:
+    say(f"\n>> {text}")
+
+
 def ask(question: str, default: str) -> str:
-    answer = _tty_input(f"{question} [{default}]: ").strip()
-    return answer or default
+    return UI.ask(question, default)
 
 
 def yes(question: str, default: bool = True) -> bool:
-    if os.environ.get("WOP_ASSUME_YES"):
-        return default
-    hint = "Y/n" if default else "y/N"
-    answer = _tty_input(f"{question} ({hint}): ").strip().lower()
-    return default if not answer else answer.startswith(("y", "j"))
+    return UI.yes(question, default)
 
 
 def pause(seconds: float | None = None) -> None:
-    if seconds is not None:
-        time.sleep(seconds)
-    elif not os.environ.get("WOP_ASSUME_YES"):
-        _tty_input("Press Enter to close this window...")
+    UI.pause(seconds)
 
 
 # --------------------------------------------------------------------------- small helpers
@@ -141,23 +176,6 @@ def _version_tuple(v: str) -> tuple:
     return tuple(int(p) if p.isdigit() else 0 for p in v.strip().split("."))
 
 
-def powershell(script: str, check: bool = False) -> subprocess.CompletedProcess:
-    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
-    return subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-                          capture_output=True, text=True, check=check)
-
-
-def ps_quote(text: str) -> str:
-    return "'" + str(text).replace("'", "''") + "'"
-
-
-def open_url(url: str) -> None:
-    if IS_WIN:
-        os.startfile(url)  # noqa: S606
-    else:
-        subprocess.run(["open", url], check=False)
-
-
 def fetch(url: str, timeout: float = 30) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "wop-server-kit"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -165,7 +183,7 @@ def fetch(url: str, timeout: float = 30) -> bytes:
 
 
 def download(url: str, dest: Path, expected_size: int | None = None) -> None:
-    """Download with a progress line; continues a half-finished download."""
+    """Download with progress (UI.progress); continues a half-finished download."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     have = dest.stat().st_size if dest.exists() else 0
     if expected_size and have == expected_size:
@@ -183,12 +201,10 @@ def download(url: str, dest: Path, expected_size: int | None = None) -> None:
             while chunk := r.read(1024 * 1024):
                 f.write(chunk)
                 have += len(chunk)
-                if total:
-                    pct = int(have * 100 / total)
-                    if pct != last:
-                        last = pct
-                        print(f"\r   {pct:3d}%  ({have / 1e9:.2f} of {total / 1e9:.2f} GB)", end="", flush=True)
-    print(flush=True)
+                if total and int(have * 100 / total) != last:
+                    last = int(have * 100 / total)
+                    UI.progress(have, total)
+    UI.progress_done()
 
 
 def sha256(path: Path) -> str:
@@ -214,11 +230,7 @@ def server_running(port: int) -> bool:
 def desktop_dir() -> Path:
     if os.environ.get("WOP_DESKTOP"):
         return Path(os.environ["WOP_DESKTOP"])
-    if IS_WIN:
-        out = powershell("[Environment]::GetFolderPath('Desktop')").stdout.strip()
-        if out:
-            return Path(out)
-    return Path.home() / "Desktop"
+    return OS.desktop_dir()
 
 
 # --------------------------------------------------------------------------- update
@@ -257,56 +269,44 @@ def install_kit_zip(zip_path: Path) -> None:
     shutil.rmtree(old, ignore_errors=True)
 
 
-def maybe_update() -> None:
+def newer_kit() -> tuple[str, str] | None:
+    """(version, zip) when a newer kit is out, else None."""
     found = remote_version_and_zip()
-    if not found:
-        return
-    version, url = found
-    if _version_tuple(version) <= _version_tuple(kit_version()):
-        return
-    step(f"Updating the WoP Server Kit from {kit_version()} to {version}...")
+    if not found or _version_tuple(found[0]) <= _version_tuple(kit_version()):
+        return None
+    return found
+
+
+def update_kit(url: str) -> None:
     if Path(url).exists():
         zip_path = Path(url)
     else:
         zip_path = Path(tempfile.gettempdir()) / "wop-server-kit-update.zip"
         zip_path.write_bytes(fetch(url, timeout=60))
     install_kit_zip(zip_path)
+
+
+def maybe_update() -> None:
+    found = newer_kit()
+    if not found:
+        return
+    version, url = found
+    step(f"Updating the WoP Server Kit from {kit_version()} to {version}...")
+    update_kit(url)
     say("   Updated. Restarting with the new version...")
-    sys.exit(subprocess.call([str(UV), "run", "--script", str(WOPKIT), *sys.argv[1:], "--no-update"]))
+    sys.exit(subprocess.call([str(uv()), "run", "--script", str(WOPKIT), *sys.argv[1:], "--no-update"]))
 
 
 # --------------------------------------------------------------------------- game
 
 def game_ok(game: Path) -> bool:
-    return (game / SERVER_BIN).exists() and (game / "wop" / "wop_maps_1.7.0.pk3").exists()
-
-
-def find_existing_wop() -> Path | None:
-    if not IS_WIN:
-        return None
-    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
-        if base and game_ok(Path(base) / "World of PADMAN 1.7.0"):
-            return Path(base) / "World of PADMAN 1.7.0"
-    return None
-
-
-def _wanted(name: str) -> bool:
-    if name.endswith("/") or name.startswith("XTRAS/"):
-        return False
-    top, _, rest = name.partition("/")
-    if not rest:                                   # files next to the game binaries
-        if IS_WIN:
-            return name.endswith((".exe", ".dll", ".md"))
-        return name.endswith((".dylib", ".md"))
-    if top == "wop":
-        return name.endswith((".pk3", ".cfg", ".dll" if IS_WIN else ".dylib"))
-    return IS_MAC and top in ("wop.x86_64.app", "wopded.x86_64.app")
+    return (game / OS.server_bin).exists() and (game / "wop" / "wop_maps_1.7.0.pk3").exists()
 
 
 def ensure_game(inst: dict) -> Path:
     if inst.get("game_dir") and game_ok(Path(inst["game_dir"])):
         return Path(inst["game_dir"])
-    existing = None if os.environ.get("WOP_FORCE_DOWNLOAD") else find_existing_wop()
+    existing = None if os.environ.get("WOP_FORCE_DOWNLOAD") else OS.find_existing_game()
     if existing:
         step(f"Found World of PADMAN already installed in {existing}; using that.")
         inst["game_dir"], inst["game_reused"] = str(existing), True
@@ -335,12 +335,9 @@ def ensure_game(inst: dict) -> Path:
     shutil.rmtree(partial, ignore_errors=True)
     with zipfile.ZipFile(zip_path) as z:
         for info in z.infolist():
-            if _wanted(info.filename):
+            if OS.wanted_in_game_zip(info.filename):
                 z.extract(info, partial)
-    if IS_MAC:
-        for app in ("wop.x86_64.app", "wopded.x86_64.app"):
-            for binary in (partial / app / "Contents" / "MacOS").glob("*"):
-                binary.chmod(0o755)
+    OS.prepare_game(partial)
     shutil.rmtree(game, ignore_errors=True)
     partial.rename(game)
     if not local:
@@ -364,181 +361,50 @@ def ensure_server_files(inst: dict, game: Path) -> None:
         if not (CFG / name).exists():
             shutil.copyfile(KIT / "server" / name, CFG / name)
 
-    port = inst["port"]
-    server = game / SERVER_BIN
-
-    def server_args(port_var: str) -> str:
-        return (f'+set fs_basepath "{game}" +set fs_homepath "{HOME}" +set logfile 2 +set dedicated 1 '
-                f'+set net_port {port_var} +set com_hunkMegs 128 +exec server-friends.cfg')
-
     # The "how to join" text gets its own window: in the server window the server's log scrolls it away
-    join_info = f'"{UV}" run --offline --quiet --script "{WOPKIT}" joininfo'
-    if IS_WIN:
-        env = "\r\n".join(f'set "{k}={v}"' for k, v in UV_ENV.items())
-        RUN_SERVER.write_text(
-            "@echo off\r\n"
-            "rem Made by the WoP Server Kit (rewritten on every start). Runs the game server.\r\n"
-            "title World of PADMAN server\r\n"
-            f'set "PORT={port}"\r\n{env}\r\n'
-            f'"{UV}" run --offline --quiet --script "{WOPKIT}" banner\r\n'
-            f'start "World of PADMAN - how to join" {join_info}\r\n'
-            f'cd /d "{game}"\r\n'
-            f'"{server}" {server_args("%PORT%")}\r\n'
-            "if errorlevel 1 (echo. & echo The server stopped with an error. & pause) else (timeout /t 3 >nul)\r\n",
-            encoding="utf-8", newline="")
-        LAUNCHER.write_text(
-            "@echo off\r\nrem Made by the WoP Server Kit. Usage: wopkit.cmd start^|stop^|uninstall\r\n"
-            f'{env}\r\n"{UV}" run --script "{WOPKIT}" %*\r\n', encoding="utf-8", newline="")
-    else:
-        env = "\n".join(f'export {k}="{v}"' for k, v in UV_ENV.items())
-        join_script = RUN_SERVER.with_name("join-info.command")  # opened in its own Terminal window
-        join_script.write_text(f"#!/bin/bash\n{env}\n{join_info}\n", encoding="utf-8", newline="\n")
-        RUN_SERVER.write_text(
-            "#!/bin/bash\n# Made by the WoP Server Kit (rewritten on every start). Runs the game server.\n"
-            f"PORT={port}\n{env}\n"
-            f'"{UV}" run --offline --quiet --script "{WOPKIT}" banner\n'
-            f'open -a Terminal "{join_script}"\n'
-            f'cd "{game}"\n'
-            f'"{server}" {server_args("$PORT")}\n',
-            encoding="utf-8", newline="\n")
-        LAUNCHER.write_text(f'#!/bin/bash\n{env}\nexec "{UV}" run --script "{WOPKIT}" "$@"\n', encoding="utf-8",
-                            newline="\n")
-        for script in (RUN_SERVER, LAUNCHER, join_script):
-            script.chmod(0o755)
+    scripts = OS.run_scripts(ROOT, inst["port"], UV_ENV, uv(), WOPKIT, game,
+                             lambda port_var: launcher.script_line(OS, game, HOME, port_var))
+    for path, text in scripts.items():
+        path.write_text(text, encoding="utf-8", newline="")
+        OS.make_executable(path)
 
 
-# --------------------------------------------------------------------------- firewall / Rosetta
+# --------------------------------------------------------------------------- network / Rosetta
 
-# Prints, as JSON: the kit's rule, the enabled inbound block rules that could hit the server, the firewall
-# profiles in effect (group policy included), the active network categories and any other firewall product.
-# The filters are fetched once for all rules: asking per rule takes ~0.4 s each. Without admin rights Windows
-# leaves part of them out ("Access is denied" halfway), so the rules we look at are asked for one by one when missing.
-_WIN_NETWORK_REPORT = r"""
-$ErrorActionPreference = 'SilentlyContinue'
-$apps = @{}; Get-NetFirewallApplicationFilter | ForEach-Object { $apps[$_.InstanceID] = "$($_.Program)" }
-$ports = @{}; Get-NetFirewallPortFilter | ForEach-Object { $ports[$_.InstanceID] = $_ }
-function Filters($r) {
-  $app = if ($apps.ContainsKey($r.Name)) { $apps[$r.Name] } else { "$(($r | Get-NetFirewallApplicationFilter).Program)" }
-  $pf = $ports[$r.Name]; if (-not $pf) { $pf = $r | Get-NetFirewallPortFilter }
-  return $app, $pf
-}
-$rule = $null; $blocks = @()
-foreach ($r in Get-NetFirewallRule) {
-  if ($r.DisplayName -eq $ruleName -and -not $rule) {
-    $app, $pf = Filters $r
-    $rule = [ordered]@{ enabled = "$($r.Enabled)"; action = "$($r.Action)"; direction = "$($r.Direction)"
-      profile = "$($r.Profile)"; program = $app; protocol = "$($pf.Protocol)"
-      remote = @(($r | Get-NetFirewallAddressFilter).RemoteAddress | ForEach-Object { "$_" }) }
-  } elseif ("$($r.Direction)" -eq 'Inbound' -and "$($r.Action)" -eq 'Block' -and "$($r.Enabled)" -eq 'True') {
-    $app, $pf = Filters $r
-    $local = @($pf.LocalPort | ForEach-Object { "$_" })
-    if ($app -like '*wopded*' -or $local -contains $port) {
-      $blocks += [ordered]@{ name = $r.Name; display = $r.DisplayName; program = $app
-        protocol = "$($pf.Protocol)"; ports = $local }
-    }
-  }
-}
-$profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore | ForEach-Object {
-  [ordered]@{ name = "$($_.Name)"; enabled = "$($_.Enabled)"; allow_inbound = "$($_.AllowInboundRules)"
-    local_rules = "$($_.AllowLocalFirewallRules)" } })
-$active = @(Get-NetConnectionProfile | ForEach-Object { "$($_.NetworkCategory)" -replace 'DomainAuthenticated', 'Domain' })
-$others = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct | ForEach-Object { "$($_.displayName)" })
-ConvertTo-Json -Compress -Depth 5 -InputObject ([ordered]@{
-  rule = $rule; blocks = $blocks; profiles = $profiles; active = $active; others = $others })
-"""
+def firewall_check(inst: dict, game: Path, port: int) -> FirewallCheck:
+    if os.environ.get("WOP_SKIP_FIREWALL"):
+        return FirewallCheck([])
+    return OS.firewall_check(str(game / OS.server_bin), port, inst)
 
 
-def windows_network_report(port: int) -> dict | None:
-    """What the Windows Firewall does with the server's traffic (no admin needed). None if it can't be read."""
-    out = powershell(f"$ruleName = {ps_quote(FIREWALL_RULE)}; $port = '{port}'\n{_WIN_NETWORK_REPORT}").stdout
-    try:
-        report = json.loads(out.strip())
-    except ValueError:
-        return None
-    return report if isinstance(report, dict) and report.get("profiles") else None
+def fix_firewall(inst: dict, game: Path, port: int, check: FirewallCheck) -> tuple[bool, FirewallCheck]:
+    """Apply every fix at once (the OS asks for permission once). (accepted, the check afterwards)."""
+    fixes = [p.fix for p in check.problems or [] if p.fix]
+    accepted = OS.run_elevated(fixes, terminal=UI.terminal) if fixes else True
+    if accepted:
+        OS.after_fix([p for p in check.problems or [] if p.fix], port, inst)
+    after = firewall_check(inst, game, port)
+    return accepted, (after if after.problems is not None else check)
 
 
-def _same_program(a: str | None, b: str | None) -> bool:
-    def norm(path: str | None) -> str:
-        return os.path.expandvars(path or "").replace("/", "\\").lower()
-    return norm(a) == norm(b)
-
-
-def _port_listed(port: int, ports: list[str]) -> bool:
-    for entry in ports:
-        low, _, high = entry.partition("-")
-        if low.isdigit() and int(low) <= port <= int(high if high.isdigit() else low):
-            return True
-    return False
-
-
-def kit_rule_script(program: str) -> str:
-    return (f"Remove-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -ErrorAction SilentlyContinue; "
-            f"New-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -Direction Inbound -Action Allow "
-            f"-Protocol UDP -Program {ps_quote(program)} -RemoteAddress LocalSubnet -Profile Any | Out-Null")
-
-
-def windows_network_problems(report: dict, program: str, port: int) -> list[tuple[str, str | None]]:
-    """What stops other computers from reaching the server: (what's wrong, PowerShell that fixes it or None)."""
-    profiles = report.get("profiles") or []
-    active = set(report.get("active") or [])
-    watched = [p for p in profiles if p.get("enabled") == "True" and (not active or p.get("name") in active)]
-    if not watched:  # the firewall is off for this network
-        return []
-    problems: list[tuple[str, str | None]] = []
-
-    rule = report.get("rule")
-    if not rule:
-        problems.append(("Windows Firewall has no rule that lets the players in.", kit_rule_script(program)))
-    elif rule.get("enabled") != "True":
-        problems.append((f'The firewall rule "{FIREWALL_RULE}" is turned off.', kit_rule_script(program)))
-    # an empty value is one Windows wouldn't show without admin rights: unknown, so not counted as changed
-    elif not (rule.get("action") == "Allow" and rule.get("direction") == "Inbound"
-              and rule.get("protocol") in ("UDP", "Any", "")
-              and (not rule.get("program") or _same_program(rule.get("program"), program))
-              and (rule.get("profile") == "Any" or all(p["name"] in rule.get("profile", "") for p in watched))
-              and (not rule.get("remote") or {"LocalSubnet", "Any"} & set(rule["remote"]))):
-        problems.append((f'The firewall rule "{FIREWALL_RULE}" was changed and no longer lets the players in.',
-                         kit_rule_script(program)))
-
-    for block in report.get("blocks") or []:
-        name = block.get("display") or block.get("name")
-        if _same_program(block.get("program"), program):
-            message = (f'Windows Firewall blocks the server (rule "{name}", usually made by clicking Cancel '
-                       "when Windows asked to allow it).")
-            problems.append((message, f"Remove-NetFirewallRule -Name {ps_quote(block['name'])}"))
-        elif (block.get("protocol") in ("UDP", "Any") and block.get("program") in (None, "", "Any")
-              and _port_listed(port, block.get("ports") or [])):
-            problems.append((f'Windows Firewall rule "{name}" blocks port {port}.',
-                             f"Disable-NetFirewallRule -Name {ps_quote(block['name'])}"))
-
-    shut = [p["name"] for p in watched if p.get("allow_inbound") == "False"]
-    if shut:
-        problems.append((f"Windows Firewall blocks ALL incoming connections on this network ({', '.join(shut)}).",
-                         f"Set-NetFirewallProfile -Profile {','.join(shut)} -AllowInboundRules True"))
-    if any(p.get("local_rules") == "False" for p in watched):
-        message = ("This computer's firewall is managed by an organization, which ignores the kit's rule. "
-                   f"Ask whoever manages it to allow UDP port {port} for World of PADMAN.")
-        problems.append((message, None))
-    return problems
-
-
-def run_elevated(script: str) -> bool:
-    """Run PowerShell as administrator (Windows shows its permission prompt). False if declined."""
-    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
-    outer = (f"try {{ $p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden "
-             f"-ArgumentList '-NoProfile','-EncodedCommand','{encoded}'; exit $p.ExitCode }} catch {{ exit 1223 }}")
-    return powershell(outer).returncode == 0
+def network_notes(port: int) -> list[str]:
+    """Things the kit can't fix but that decide whether the players find the server."""
+    from wop.actions import Game
+    notes = []
+    if not Game.lan_addresses():
+        notes.append("This computer doesn't seem to be connected to a network, so nobody else can join yet.")
+    if port not in LAN_PORTS:
+        notes.append(f"The game's LAN list only searches ports 27960-27963, and this server uses {port}. "
+                     f"The players won't see it in the list; they join with /connect <address>:{port}")
+    return notes
 
 
 def ensure_firewall(inst: dict, game: Path, port: int) -> None:
     """Checked on every start: can the other computers on the network reach the server? If not, offer to fix it."""
     if not os.environ.get("WOP_SKIP_FIREWALL"):
-        if IS_WIN:
-            _firewall_windows(inst, game, port)
-        elif IS_MAC:
-            _firewall_mac(inst, game)
-    network_notes(port)
+        _firewall_console(inst, game, port)
+    for note in network_notes(port):
+        say(f"\n   Note: {note}")
 
 
 def _say_problems(problems: list[str]) -> None:
@@ -559,113 +425,45 @@ def _say_declined() -> None:
     say("   You'll be asked again the next time you start the server.")
 
 
-def _firewall_windows(inst: dict, game: Path, port: int) -> None:
-    program = str(game / SERVER_BIN)
+def _firewall_console(inst: dict, game: Path, port: int) -> None:
     step("Checking that the players on your network can join...")
-    report = windows_network_report(port)
-    if report is None:
-        say("   Couldn't read the Windows Firewall settings, so this was skipped.")
+    check = firewall_check(inst, game, port)
+    if check.problems is None:
+        say(f"   Couldn't read the {OS.firewall_name} settings, so this was skipped.")
         say(f"   If the players can't join: {TROUBLESHOOTING_URL}")
         return
-    problems = windows_network_problems(report, program, port)
+    problems = check.problems
     if not problems:
         say("   OK.")
-    elif not any(fix for _, fix in problems):
-        _say_not_fixed([message for message, _ in problems])
+    elif not any(p.fix for p in problems):
+        _say_not_fixed([p.text for p in problems])
     else:
-        _say_problems([message for message, _ in problems])
+        _say_problems([p.text for p in problems])
         if yes("   Do you want to allow this?"):
-            say("   Windows will now ask for permission (\"Do you want to allow this app to make changes?\").")
-            say("   Click YES. This only lets World of PADMAN players on your own network in, nothing from the internet.")
-            accepted = run_elevated("; ".join(fix for _, fix in problems if fix))
-            report = windows_network_report(port) or report
-            problems = windows_network_problems(report, program, port)
+            for line in OS.elevation_hint.splitlines():
+                say(f"   {line}")
+            accepted, check = fix_firewall(inst, game, port, check)
+            problems = check.problems or []
             if not problems:
                 say("   Done. Other computers on your network can now join.")
-            elif not accepted and any(fix for _, fix in problems):
+            elif not accepted and any(p.fix for p in problems):
                 _say_declined()
             else:
-                _say_not_fixed([message for message, _ in problems])
+                _say_not_fixed([p.text for p in problems])
         else:
             _say_declined()
-    if report.get("rule"):
-        inst["firewall"] = program  # so uninstall removes the rule
-    others = report.get("others") or []
-    if others and others != inst.get("other_firewalls"):
-        say(f"   Note: {', '.join(others)} also guards this computer. If the players can't join, allow")
+    if check.others and check.others != inst.get("other_firewalls"):
+        say(f"   Note: {', '.join(check.others)} also guards this computer. If the players can't join, allow")
         say("   World of PADMAN there too (or ask its support how to allow a program on your home network).")
-    inst["other_firewalls"] = others
-
-
-def network_notes(port: int) -> None:
-    """Things the kit can't fix but that decide whether the players find the server."""
-    from wop.actions import Game
-    if not Game.lan_addresses():
-        say("\n   Note: this computer doesn't seem to be connected to a network, so nobody else can join yet.")
-    if port not in LAN_PORTS:
-        say(f"\n   Note: the game's LAN list only searches ports 27960-27963, and this server uses {port}.")
-        say(f"   The players won't see it in the list; they join with /connect <address>:{port}")
-
-
-def socketfilterfw(*args: str, sudo: bool = False) -> str:
-    """Run the macOS application firewall tool; its answer in lower case ("" with sudo or if it can't run)."""
-    cmd = (["sudo"] if sudo else []) + [MAC_FIREWALL, *args]
-    try:  # sudo asks for the password on the terminal itself, like in ensure_rosetta
-        out = subprocess.run(cmd, stdout=subprocess.DEVNULL if sudo else subprocess.PIPE,
-                             stderr=None if sudo else subprocess.DEVNULL, text=True, check=False).stdout
-    except OSError:
-        return ""
-    return (out or "").lower()
-
-
-def _mac_permitted(program: str) -> bool:
-    return "permitted" in socketfilterfw("--getappblocked", program)
-
-
-def _firewall_mac(inst: dict, game: Path) -> None:
-    """The Mac firewall is off by default. When it's on, it would block (or ask about) the server every time."""
-    if "enabled" not in socketfilterfw("--getglobalstate"):
-        return
-    program = str(game / SERVER_BIN)
-
-    def problems() -> list[str]:
-        found = []
-        if not _mac_permitted(program):
-            found.append("Your Mac's firewall doesn't let the server in.")
-        if "enabled" in socketfilterfw("--getblockall"):
-            found.append("Your Mac's firewall blocks ALL incoming connections.")
-        return found
-
-    found = problems()
-    if found:
-        step("Checking that the players on your network can join...")
-        _say_problems(found)
-        if yes("   Do you want to allow this?"):
-            say("   You may be asked for your Mac password (typing it shows nothing; press Enter after).")
-            if not _mac_permitted(program):
-                socketfilterfw("--add", program, sudo=True)
-                socketfilterfw("--unblockapp", program, sudo=True)
-            if "enabled" in socketfilterfw("--getblockall"):
-                socketfilterfw("--setblockall", "off", sudo=True)
-            found = problems()
-            if found:
-                _say_not_fixed(found)
-            else:
-                say("   Done. Other computers on your network can now join.")
-        else:
-            _say_declined()
-    if _mac_permitted(program):
-        inst["firewall"] = program  # so uninstall removes the permission
+    inst["other_firewalls"] = check.others
 
 
 def ensure_rosetta() -> None:
-    if not IS_MAC or os.uname().machine != "arm64":
-        return
-    if subprocess.run(["/usr/bin/arch", "-x86_64", "/usr/bin/true"], capture_output=True).returncode == 0:
+    if not OS.needs_rosetta():
         return
     step("World of PADMAN is made for Intel Macs; your Mac needs Apple's free \"Rosetta\" to run it.")
-    say("   You may be asked for your Mac password (typing it shows nothing; press Enter after).")
-    subprocess.run(["sudo", "/usr/sbin/softwareupdate", "--install-rosetta", "--agree-to-license"], check=False)
+    say(f"   {OS.elevation_short}")
+    OS.run_elevated([OS.rosetta_command()], terminal=UI.terminal)
 
 
 # --------------------------------------------------------------------------- Claude Desktop
@@ -673,15 +471,7 @@ def ensure_rosetta() -> None:
 def claude_config_paths() -> list[Path]:
     if os.environ.get("WOP_CLAUDE_CONFIG"):
         return [Path(os.environ["WOP_CLAUDE_CONFIG"])]
-    if IS_MAC:
-        return [Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"]
-    paths = [Path(os.environ["APPDATA"]) / "Claude" / "claude_desktop_config.json"]
-    # The Store version may keep its settings in its own package folder
-    for pkg in (Path(os.environ["LOCALAPPDATA"]) / "Packages").glob("Claude_*"):
-        virtual = pkg / "LocalCache" / "Roaming" / "Claude"
-        if virtual.is_dir():
-            paths.append(virtual / "claude_desktop_config.json")
-    return paths
+    return OS.claude_config_paths()
 
 
 def claude_control() -> bool:
@@ -693,105 +483,48 @@ def claude_app() -> str | None:
     """How to open Claude Desktop, or None if it isn't installed."""
     if "WOP_CLAUDE_APP" in os.environ:
         return os.environ["WOP_CLAUDE_APP"] or None
-    if IS_MAC:
-        for app in (Path("/Applications/Claude.app"), Path.home() / "Applications" / "Claude.app"):
-            if app.exists():
-                return str(app)
-        return None
-    out = powershell("(Get-StartApps | Where-Object { $_.Name -eq 'Claude' } | Select-Object -First 1).AppID").stdout
-    if out.strip():
-        return "shell:AppsFolder\\" + out.strip()
-    squirrel = Path(os.environ["LOCALAPPDATA"]) / "AnthropicClaude" / "claude.exe"
-    return str(squirrel) if squirrel.exists() else None
+    return OS.claude_app()
 
 
 def claude_running() -> bool:
-    if not claude_control():
-        return False
-    if IS_MAC:
-        return subprocess.run(["pgrep", "-x", "Claude"], capture_output=True).returncode == 0
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq claude.exe", "/NH"], capture_output=True, text=True).stdout
-    return "claude.exe" in out.lower()
-
-
-def open_claude(app: str) -> None:
-    if not claude_control():
-        return
-    if IS_MAC:
-        subprocess.run(["open", app], check=False)
-    elif app.startswith("shell:"):
-        subprocess.run(["explorer.exe", app], check=False)
-    else:
-        subprocess.Popen([app], creationflags=subprocess.DETACHED_PROCESS)
-
-
-def quit_claude() -> None:
-    if not claude_control():
-        return
-    if IS_MAC:
-        subprocess.run(["osascript", "-e", 'tell application "Claude" to quit'], check=False)
-    else:
-        subprocess.run(["taskkill", "/IM", "claude.exe", "/F"], capture_output=True)
-    for _ in range(20):
-        time.sleep(0.5)
-        if not claude_running():
-            return
+    return claude_control() and OS.claude_running()
 
 
 def install_claude() -> None:
     page = SETTINGS["claude_download_page"]
     if not claude_control():
         return
-    if IS_WIN and shutil.which("winget"):
+    if OS.can_install_claude():
         say("   Installing Claude Desktop (this can take a minute)...")
-        subprocess.run(["winget", "install", "--id", "Anthropic.Claude", "-e", "--silent",
-                        "--accept-package-agreements", "--accept-source-agreements"], check=False)
-        return
-    if IS_MAC and shutil.which("brew"):
-        subprocess.run(["brew", "install", "--cask", "claude"], check=False)
+        OS.install_claude()
         return
     say(f"   Opening {page}. Download and install Claude Desktop, then come back here.")
-    open_url(page)
+    OS.open_url(page)
     _tty_input("   Press Enter when Claude Desktop is installed...")
 
 
 def mcp_entry() -> dict:
     return {
-        "command": str(UV),
+        "command": str(uv()),
         "args": ["run", "--script", str(KIT / "mcp" / "server.py")],
-        "env": {"WOP_HOME": str(HOME), "WOP_START_SCRIPT": str(RUN_SERVER), **UV_ENV},
+        "env": {"WOP_HOME": str(HOME), "WOP_START_SCRIPT": str(run_server_script()), **UV_ENV},
     }
 
 
 def set_claude_entry(entry: dict | None) -> bool:
     """Add (or with None remove) our server in Claude's config. True if a file changed."""
-    name, changed = SETTINGS["mcp_name"], False
-    for path in claude_config_paths():
-        try:
-            config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        except ValueError:
+    paths = claude_config_paths()
+    for path in paths:
+        if path.exists() and ai_apps._read(path) is None:
             say(f"   Couldn't read {path} (not valid JSON); left it alone.")
-            continue
-        servers = config.setdefault("mcpServers", {})
-        if (servers.get(name) == entry) or (entry is None and name not in servers):
-            continue
-        if path.exists() and not path.with_name(path.name + ".before-wop-kit").exists():
-            shutil.copyfile(path, path.with_name(path.name + ".before-wop-kit"))
-        if entry is None:
-            servers.pop(name, None)
-        else:
-            servers[name] = entry
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-        changed = True
-    return changed
+    return ai_apps.set_entry(paths, "mcpServers", SETTINGS["mcp_name"], entry)
 
 
 def ensure_mcp_ready() -> bool:
     step("Preparing the Claude connection (downloads a few small parts the first time)...")
     for attempt in range(3):
         # Antivirus scanning fresh downloads can make the first try fail ("failed to persist temporary file")
-        proc = subprocess.run([str(UV), "run", "--quiet", "--script", str(KIT / "mcp" / "server.py"), "--selftest"],
+        proc = subprocess.run([str(uv()), "run", "--quiet", "--script", str(KIT / "mcp" / "server.py"), "--selftest"],
                               capture_output=True, text=True)
         if proc.returncode == 0 and proc.stdout.startswith("ok"):
             say("   Ready.")
@@ -806,6 +539,8 @@ def ensure_mcp_ready() -> bool:
 
 
 def ensure_claude(inst: dict, first_run: bool) -> None:
+    if not claude_config_paths():
+        return  # no Claude Desktop for this OS
     app = claude_app()
     if not app and not inst.get("claude_declined"):
         step("Claude Desktop lets you change the game by just asking (\"switch to Capture The Lolly\").")
@@ -825,10 +560,11 @@ def ensure_claude(inst: dict, first_run: bool) -> None:
     if changed and claude_running():
         say("\n   Claude Desktop needs a restart to connect to your server.")
         if yes("   Restart Claude Desktop now?"):
-            quit_claude()
-            open_claude(app)
-    elif not claude_running() and (changed or first_run or inst.get("open_claude", True)):
-        open_claude(app)
+            if claude_control():
+                OS.quit_claude()
+                OS.open_claude(app)
+    elif not claude_running() and (changed or first_run or inst.get("open_claude", True)) and claude_control():
+        OS.open_claude(app)
     if changed:
         say("   Claude Desktop is connected to your server. In Claude, try: \"What's running on my WoP server?\"")
 
@@ -842,7 +578,7 @@ def ensure_shortcuts(inst: dict, game: Path) -> None:
         _make_shortcuts(inst, game)
     except OSError as e:  # e.g. the Mac asked "allow access to Desktop?" and the answer was no
         say(f"   Couldn't put the shortcuts in the {SHORTCUT_FOLDER} folder on your desktop ({e.strerror or e}).")
-        say(f"   Start the server later by running this kit again, or with {LAUNCHER} start")
+        say(f"   Start the server later by running this kit again, or with {launcher_script()} start")
 
 
 def _make_shortcuts(inst: dict, game: Path) -> None:
@@ -850,46 +586,14 @@ def _make_shortcuts(inst: dict, game: Path) -> None:
     folder = desktop_dir() / SHORTCUT_FOLDER
     server_dir = folder / SERVER_SUBFOLDER
     server_dir.mkdir(parents=True, exist_ok=True)
+    icon = game / OS.client_bin
+    kit = launcher_script()
     web_links = {"WoP Server Help": f"https://github.com/{SETTINGS['repo']}#readme",
                  "WoP Server Troubleshooting": TROUBLESHOOTING_URL}
-    made = []
-    if IS_WIN:
-        icon = f"{game / CLIENT_BIN},0"
-        links = [(server_dir / "Start WoP Server.lnk", LAUNCHER, "start", ROOT),
-                 (server_dir / "Stop WoP Server.lnk", LAUNCHER, "stop", ROOT),
-                 (folder / "Play World of PADMAN.lnk", game / CLIENT_BIN, "", game)]
-        lines = ["$s = New-Object -ComObject WScript.Shell"]
-        for path, target, args, workdir in links:
-            lines += [f"$l = $s.CreateShortcut({ps_quote(path)})",
-                      f"$l.TargetPath = {ps_quote(target)}", f"$l.Arguments = {ps_quote(args)}",
-                      f"$l.WorkingDirectory = {ps_quote(workdir)}", f"$l.IconLocation = {ps_quote(icon)}",
-                      "$l.Save()"]
-            made.append(path)
-        powershell("\n".join(lines))
-        for name, url in web_links.items():
-            link = server_dir / f"{name}.url"
-            link.write_text(f"[InternetShortcut]\r\nURL={url}\r\n", encoding="utf-8", newline="")
-            made.append(link)
-    else:
-        for name, body in {"Start WoP Server.command": f'exec "{LAUNCHER}" start\n',
-                           "Stop WoP Server.command": f'"{LAUNCHER}" stop\n'}.items():
-            path = server_dir / name
-            path.write_text("#!/bin/bash\n" + body, encoding="utf-8", newline="\n")
-            path.chmod(0o755)
-            made.append(path)
-        # Finder opens a link to an .app like the app itself, and a .webloc in the browser
-        play = folder / "Play World of PADMAN.app"
-        if play.is_symlink() or play.exists():
-            play.unlink()
-        play.symlink_to(game / CLIENT_BIN)
-        made.append(play)
-        for name, url in web_links.items():
-            link = server_dir / f"{name}.webloc"
-            link.write_text(
-                '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-                '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>URL</key>'
-                f"<string>{url}</string></dict></plist>\n", encoding="utf-8", newline="\n")
-            made.append(link)
+    made = OS.make_shortcuts(server_dir, [Shortcut("Start WoP Server", kit, ["start"], ROOT, icon),
+                                          Shortcut("Stop WoP Server", kit, ["stop"], ROOT, icon)], web_links)
+    made += OS.make_shortcuts(folder, [Shortcut("Play World of PADMAN", game / OS.client_bin, [], game, icon,
+                                                app=True)], {})
     # older kits put the shortcuts loose on the desktop: remove those
     for old in set(inst.get("shortcuts", [])) - {str(p) for p in made}:
         Path(old).unlink(missing_ok=True)
@@ -905,6 +609,18 @@ def remove_shortcuts(inst: dict) -> None:
             Path(folder).rmdir()
         except OSError:
             pass
+
+
+# --------------------------------------------------------------------------- joining
+
+def join_addresses() -> list[tuple[str, str]]:
+    """(address, connection name) the players can use, the one other devices should use first."""
+    from wop.actions import Game
+    preferred = Game.lan_addresses()
+    found = OS.network_adapters()
+    if not found:
+        return [(ip, "") for ip in preferred[:1]]
+    return sorted(found, key=lambda entry: bool(preferred) and entry[0] != preferred[0])
 
 
 # --------------------------------------------------------------------------- commands
@@ -930,29 +646,6 @@ def cmd_banner(_args) -> None:
     say("")
     say("  Keep this window open while you play. Close it (or use Stop WoP Server) to stop.")
     say(line)
-
-
-# This computer's IPv4 addresses on networks with a router. Virtual adapters (WSL, Hyper-V, VirtualBox) have none,
-# so their addresses, which would only confuse the players, are left out.
-_WIN_ADDRESSES = r"""
-Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
-  ForEach-Object { foreach ($a in $_.IPv4Address) { "$($a.IPAddress)`t$($_.InterfaceAlias)" } }
-"""
-
-
-def join_addresses() -> list[tuple[str, str]]:
-    """(address, connection name) the players can use, the one other devices should use first."""
-    from wop.actions import Game
-    preferred = Game.lan_addresses()
-    found: list[tuple[str, str]] = []
-    if IS_WIN:
-        for line in powershell(_WIN_ADDRESSES).stdout.splitlines():
-            ip, _, name = line.strip().partition("\t")
-            if ip and not ip.startswith("169.254.") and ip not in [a for a, _ in found]:
-                found.append((ip, name))
-    if not found:
-        return [(ip, "") for ip in preferred[:1]]
-    return sorted(found, key=lambda entry: bool(preferred) and entry[0] != preferred[0])
 
 
 def cmd_joininfo(_args) -> None:
@@ -993,6 +686,16 @@ def cmd_joininfo(_args) -> None:
     pause()
 
 
+def prepare(inst: dict) -> Path:
+    """Everything the server needs before it can start (the first time this downloads the game)."""
+    inst.setdefault("port", int(os.environ.get("WOP_PORT") or SETTINGS["default_port"]))
+    save_install(inst)
+    game = ensure_game(inst)
+    save_install(inst)
+    ensure_server_files(inst, game)
+    return game
+
+
 def cmd_start(args) -> None:
     say("WoP Server Kit " + kit_version())
     if not args.no_update:
@@ -1002,15 +705,11 @@ def cmd_start(args) -> None:
     if first_run:
         say("\nHi! This sets up a World of PADMAN server for the players on your network,")
         say("and connects it to Claude so you can change the game by just asking.")
-    inst.setdefault("port", int(os.environ.get("WOP_PORT") or SETTINGS["default_port"]))
     if not inst.get("server_name"):
         default = f"{getpass.getuser()}'s WoP server"
         inst["server_name"] = clean_name(ask("\nWhat should your server be called?", default)) or default
-    save_install(inst)
 
-    game = ensure_game(inst)
-    save_install(inst)
-    ensure_server_files(inst, game)
+    game = prepare(inst)
     ensure_firewall(inst, game, inst["port"])
     ensure_rosetta()
     if ensure_mcp_ready():
@@ -1020,7 +719,7 @@ def cmd_start(args) -> None:
     save_install(inst)
 
     if server_running(inst["port"]):
-        say("\nThe server is already running (in its own window).")
+        say("\nThe server is already running.")
         pause(8)
         return
     if first_run:
@@ -1029,24 +728,41 @@ def cmd_start(args) -> None:
     say("\nStarting the server...\n")
     if os.environ.get("WOP_NO_SERVER"):
         return
-    if IS_WIN:
-        sys.exit(subprocess.call(["cmd.exe", "/c", str(RUN_SERVER)]))
-    os.execv("/bin/bash", ["bash", str(RUN_SERVER)])
+    sys.exit(OS.run_script_here(run_server_script()))
 
 
-def cmd_stop(_args) -> None:
+def stop_server(port: int) -> bool:
+    """Ask the server to quit. False if it wasn't running."""
     from wop.rcon import Rcon, ServerOffline
-    port = load_install().get("port", SETTINGS["default_port"])
     if not server_running(port):
-        say("The WoP server isn't running.")
-        pause(3)
-        return
+        return False
     try:
         Rcon(port=port).command("quit", timeout=1.0)
     except ServerOffline:
         pass
-    say("The WoP server is stopping.")
+    return True
+
+
+def cmd_stop(_args) -> None:
+    if stop_server(load_install().get("port", SETTINGS["default_port"])):
+        say("The WoP server is stopping.")
+    else:
+        say("The WoP server isn't running.")
     pause(3)
+
+
+def uninstall(inst: dict) -> None:
+    """Remove the server, its settings, the firewall permission, the AI connections and the shortcuts."""
+    stop_server(inst.get("port", SETTINGS["default_port"]))
+    removal = [] if os.environ.get("WOP_SKIP_FIREWALL") else OS.firewall_removal(inst)
+    if removal:
+        say(f"Removing the firewall permission for the server. {OS.elevation_short}")
+        OS.run_elevated(removal, terminal=UI.terminal)
+    set_claude_entry(None)
+    for app in ai_apps.APPS:
+        if app.id != "claude-desktop" and app.available(OS):
+            ai_apps.disconnect(app, OS, SETTINGS["mcp_name"])
+    remove_shortcuts(inst)
 
 
 def cmd_uninstall(_args) -> None:
@@ -1058,24 +774,9 @@ def cmd_uninstall(_args) -> None:
         say("Nothing removed.")
         pause()
         return
-    port = inst.get("port", SETTINGS["default_port"])
-    if server_running(port):
-        cmd_stop(None)
-    if IS_WIN and inst.get("firewall"):
-        say("Windows will ask for permission to remove the firewall rule; click Yes.")
-        run_elevated(f"Remove-NetFirewallRule -DisplayName {ps_quote(FIREWALL_RULE)} -ErrorAction SilentlyContinue")
-    if IS_MAC and inst.get("firewall"):
-        say("Removing the firewall permission; you may be asked for your Mac password.")
-        socketfilterfw("--remove", inst["firewall"], sudo=True)
-    set_claude_entry(None)
-    remove_shortcuts(inst)
+    uninstall(inst)
     say("Removed. The WoP Server folder is deleted after this window closes.")
-    if IS_WIN:
-        # uv.exe (running this script) is inside the folder, so delete it once we've exited
-        subprocess.Popen(f'cmd /c ping -n 4 127.0.0.1 >nul & rmdir /s /q "{ROOT}"',
-                         creationflags=subprocess.CREATE_NO_WINDOW)
-    else:
-        shutil.rmtree(ROOT, ignore_errors=True)
+    OS.remove_folder_after_exit(ROOT)
     pause(3)
 
 

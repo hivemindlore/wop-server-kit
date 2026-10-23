@@ -10,6 +10,9 @@ from pathlib import Path
 import pytest
 
 import wopkit
+from wop.platforms import for_name, linux, mac, windows
+
+WIN, MAC, LINUX = for_name("windows"), for_name("mac"), for_name("linux")
 
 
 @pytest.fixture
@@ -56,25 +59,25 @@ def test_download_resumes(http_file, tmp_path):
     assert dest.stat().st_size == len(data)
 
 
-@pytest.mark.parametrize("name,win,mac", [
-    ("wopded.x86_64.exe", True, False),
-    ("SDL2.dll", True, False),
-    ("renderer_opengl1_x86_64.dylib", False, True),
-    ("wop/wop_maps_1.7.0.pk3", True, True),
-    ("wop/qagame_x86_64.dll", True, False),
-    ("wop/qagame_x86_64.so", False, False),
-    ("wopded.x86_64", False, False),                    # Linux server
-    ("wopded.x86_64.app/Contents/MacOS/wopded.x86_64", False, True),
-    ("XTRAS/Windows32.zip", False, False),
-    ("wop/", False, False),
+@pytest.mark.parametrize("name,win,mac,lin", [
+    ("wopded.x86_64.exe", True, False, False),
+    ("SDL2.dll", True, False, False),
+    ("renderer_opengl1_x86_64.dylib", False, True, False),
+    ("renderer_opengl1_x86_64.so", False, False, True),
+    ("wop/wop_maps_1.7.0.pk3", True, True, True),
+    ("wop/qagame_x86_64.dll", True, False, False),
+    ("wop/qagame_x86_64.so", False, False, True),
+    ("wopded.x86_64", False, False, True),                    # Linux server
+    ("wop.x86_64", False, False, True),
+    ("wopded.x86_64.app/Contents/MacOS/wopded.x86_64", False, True, False),
+    ("README.md", True, True, True),
+    ("XTRAS/Windows32.zip", False, False, False),
+    ("wop/", False, False, False),
 ])
-def test_extract_filter(monkeypatch, name, win, mac):
-    monkeypatch.setattr(wopkit, "IS_WIN", True)
-    monkeypatch.setattr(wopkit, "IS_MAC", False)
-    assert wopkit._wanted(name) is win
-    monkeypatch.setattr(wopkit, "IS_WIN", False)
-    monkeypatch.setattr(wopkit, "IS_MAC", True)
-    assert wopkit._wanted(name) is mac
+def test_extract_filter(name, win, mac, lin):
+    assert WIN.wanted_in_game_zip(name) is win
+    assert MAC.wanted_in_game_zip(name) is mac
+    assert LINUX.wanted_in_game_zip(name) is lin
 
 
 def test_version_compare():
@@ -129,49 +132,55 @@ def test_install_kit_zip_keeps_everything_else(tmp_path, monkeypatch):
     assert not (root / "kit.new").exists() and not (root / "kit.old").exists()
 
 
-@pytest.mark.parametrize("platform", ["win", "mac"])
+@pytest.mark.parametrize("platform", ["windows", "mac", "linux"])
 def test_generated_scripts(tmp_path, monkeypatch, platform):
-    """The run-server / wopkit launchers for both platforms; Mac ones must be valid bash."""
+    """The run-server / wopkit launchers for every OS; Mac and Linux ones must be valid bash."""
     import shutil
     import subprocess
-    mac = platform == "mac"
+    behavior = for_name(platform)
     root = tmp_path / "Wo P root"                       # a space, like "Application Support"
-    monkeypatch.setattr(wopkit, "IS_WIN", not mac)
-    monkeypatch.setattr(wopkit, "IS_MAC", mac)
+    monkeypatch.setattr(wopkit, "OS", behavior)
+    monkeypatch.setattr(wopkit, "ROOT", root)
     monkeypatch.setattr(wopkit, "HOME", root / "home")
     monkeypatch.setattr(wopkit, "CFG", root / "home" / "wop")
-    monkeypatch.setattr(wopkit, "UV", root / "tools" / ("uv" if mac else "uv.exe"))
-    monkeypatch.setattr(wopkit, "RUN_SERVER", root / ("run-server.command" if mac else "run-server.cmd"))
-    monkeypatch.setattr(wopkit, "LAUNCHER", root / ("wopkit.sh" if mac else "wopkit.cmd"))
-    monkeypatch.setattr(wopkit, "SERVER_BIN", Path("wopded.x86_64.app/Contents/MacOS/wopded.x86_64") if mac
-                        else Path("wopded.x86_64.exe"))
     root.mkdir()
     wopkit.ensure_server_files({"server_name": "Kim's server", "port": 27961}, root / "game")
 
     cfg = (root / "home" / "wop" / "server-friends.cfg").read_text(encoding="utf-8")
     assert 'set sv_hostname "Kim\'s server"' in cfg and "__RCON_PASSWORD__" not in cfg
     assert (root / "home" / "wop" / "teams.cfg").exists()
-    run = wopkit.RUN_SERVER.read_bytes().decode()
-    assert "net_port" in run and "27961" in run and "fs_homepath" in run
-    # the "how to join" window opens before the server
-    assert 0 < run.index("join-info.command" if mac else "joininfo") < run.index("net_port")
-    if mac:
-        join_script = root / "join-info.command"
-        assert f'open -a Terminal "{join_script}"' in run and "joininfo" in join_script.read_text()
-        assert "\r" not in run
-        bash = shutil.which("bash")
-        if bash:
-            for script in (wopkit.RUN_SERVER, wopkit.LAUNCHER, join_script):
-                assert subprocess.run([bash, "-n", str(script)]).returncode == 0
-    else:
+    run = wopkit.run_server_script().read_bytes().decode()
+    home = root / "home"
+    assert "net_port" in run and "27961" in run and f'fs_homepath "{home}"' in run
+    assert f'"{root / "game" / behavior.server_bin}"' in run
+    assert wopkit.launcher_script().exists()
+    if platform == "windows":
+        assert 0 < run.index("joininfo") < run.index("net_port")  # the "how to join" window opens first
         assert "\r\r\n" not in run and run.count("\r\n") == run.count("\n")
+        return
+    join_script = root / ("join-info.command" if platform == "mac" else "join-info.sh")
+    assert "joininfo" in join_script.read_text() and 0 < run.index(str(join_script)) < run.index("net_port")
+    assert "\r" not in run
+    if platform == "mac":
+        assert f'open -a Terminal "{join_script}"' in run
+    bash = shutil.which("bash")
+    if bash:
+        for script in (wopkit.run_server_script(), wopkit.launcher_script(), join_script):
+            assert subprocess.run([bash, "-n", str(script)]).returncode == 0
+
+
+def test_launcher_args_match_script(tmp_path):
+    from wop import launcher
+    game, home = tmp_path / "game", tmp_path / "home"
+    args = launcher.server_args(game, home, 27961)
+    assert args[args.index("net_port") + 1] == "27961" and args[-2:] == ["+exec", "server-friends.cfg"]
+    line = launcher.script_line(WIN, game, home, "%PORT%")
+    assert line.startswith(f'"{game / "wopded.x86_64.exe"}" +set fs_basepath "{game}"') and "net_port %PORT%" in line
 
 
 def test_shortcuts_in_folder(tmp_path, monkeypatch):
     """Play in Desktop/World of PADMAN, the rest in its WOP-server subfolder; old loose shortcuts go."""
-    monkeypatch.setattr(wopkit, "IS_WIN", False)
-    monkeypatch.setattr(wopkit, "IS_MAC", True)
-    monkeypatch.setattr(wopkit, "CLIENT_BIN", Path("wop.x86_64.app"))
+    monkeypatch.setattr(wopkit, "OS", MAC)
     desk = tmp_path / "Desktop"
     desk.mkdir()
     monkeypatch.setenv("WOP_DESKTOP", str(desk))
@@ -205,45 +214,37 @@ def test_remove_shortcuts_keeps_users_files(tmp_path):
     assert not (folder / "WOP-server").exists() and (folder / "my notes.txt").exists()
 
 
-@pytest.mark.parametrize("state,blocked,block_all,answer,expect_sudo", [
-    ("Firewall is disabled. (State = 0)", "", False, "y", []),
-    ("Firewall is enabled. (State = 1)", "The application is permitted", False, "y", []),
-    ("Firewall is enabled. (State = 1)", "The application is blocked", False, "y", ["--add", "--unblockapp"]),
-    ("Firewall is enabled. (State = 1)", "The application is blocked", False, "n", []),
-    ("Firewall is enabled. (State = 1)", "The application is permitted", True, "y", ["--setblockall"]),
+@pytest.mark.parametrize("state,blocked,block_all,expect_fixes", [
+    ("Firewall is disabled. (State = 0)", "", False, []),
+    ("Firewall is enabled. (State = 1)", "The application is permitted", False, []),
+    ("Firewall is enabled. (State = 1)", "The application is blocked", False, ["--add", "--unblockapp"]),
+    ("Firewall is enabled. (State = 1)", "The application is permitted", True, ["--setblockall off"]),
 ])
-def test_mac_firewall(monkeypatch, tmp_path, state, blocked, block_all, answer, expect_sudo):
-    monkeypatch.setattr(wopkit, "IS_WIN", False)
-    monkeypatch.setattr(wopkit, "IS_MAC", True)
-    monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
-    monkeypatch.delenv("WOP_ASSUME_YES", raising=False)
-    monkeypatch.setattr(wopkit, "_tty_input", lambda prompt: answer)
-    monkeypatch.setattr(wopkit, "network_notes", lambda port: None)
-    calls, allowed, open_all = [], [], [block_all]
+def test_mac_firewall_check(monkeypatch, state, blocked, block_all, expect_fixes):
+    def fake(*args):
+        return {"--getglobalstate": state, "--getappblocked": blocked,
+                "--getblockall": "block all enabled!" if block_all else "block all disabled!"}[args[0]].lower()
 
-    def fake(*args, sudo=False):
-        calls.append((args, sudo))
-        if sudo and args[0] == "--unblockapp":
-            allowed.append(args[1])
-        if sudo and args == ("--setblockall", "off"):
-            open_all[0] = False
-        if args[0] == "--getglobalstate":
-            return state.lower()
-        if args[0] == "--getappblocked":
-            return "the application is permitted" if allowed else blocked.lower()
-        if args[0] == "--getblockall":
-            return "block all enabled!" if open_all[0] else "block all disabled!"
-        return ""
-
-    monkeypatch.setattr(wopkit, "socketfilterfw", fake)
+    monkeypatch.setattr(mac, "socketfilterfw", fake)
     inst = {}
-    wopkit.ensure_firewall(inst, tmp_path / "game", 27960)
-    program = str(tmp_path / "game" / wopkit.SERVER_BIN)
-    assert [args[0] for args, sudo in calls if sudo] == expect_sudo
-    if "--add" in expect_sudo:
-        assert ("--add", program) in [args for args, _ in calls]
-    permitted = "disabled" not in state and ("permitted" in blocked or answer == "y")
-    assert inst.get("firewall") == (program if permitted else None)
+    check = MAC.firewall_check("/Games/wopded", 27960, inst)
+    fixes = " ".join(p.fix for p in check.problems)
+    assert all(part in fixes for part in expect_fixes) and bool(fixes) == bool(expect_fixes)
+    if "--add" in expect_fixes:
+        assert "--add /Games/wopded" in fixes
+    assert inst.get("firewall") == ("/Games/wopded" if "permitted" in blocked and "enabled" in state else None)
+
+
+@pytest.mark.parametrize("terminal,expect", [
+    (True, ["sudo", "/bin/sh", "-c", "a; b"]),
+    (False, ["osascript", "-e", 'do shell script "a; b" with administrator privileges']),
+])
+def test_mac_elevation(monkeypatch, terminal, expect):
+    from types import SimpleNamespace
+    ran = []
+    monkeypatch.setattr(mac.subprocess, "run", lambda cmd, **kw: ran.append(cmd) or SimpleNamespace(returncode=0))
+    assert MAC.run_elevated(["a", "b"], terminal=terminal) is True
+    assert ran == [expect]
 
 
 WIN_PROGRAM = r"C:\Users\Kim\AppData\Local\WoPServer\game\wopded.x86_64.exe"
@@ -283,11 +284,11 @@ def win_report(rule=KIT_RULE, blocks=(), allow_inbound="True", local_rules="True
     (win_report(rule=None, local_rules="False"), ["New-NetFirewallRule", None]),
 ])
 def test_windows_network_problems(report, expected):
-    problems = wopkit.windows_network_problems(report, WIN_PROGRAM, 27960)
+    problems = windows.network_problems(report, WIN_PROGRAM, 27960)
     assert len(problems) == len(expected)
-    for (message, fix), want in zip(problems, expected):
-        assert message
-        assert fix == want if want is None else want in fix
+    for problem, want in zip(problems, expected):
+        assert problem.text
+        assert problem.fix == want if want is None else want in problem.fix
 
 
 @pytest.mark.parametrize("answer,elevated_ok,fixed,expect_elevated,expect_text", [
@@ -299,15 +300,18 @@ def test_windows_network_problems(report, expected):
 def test_windows_firewall_flow(monkeypatch, tmp_path, capsys, answer, elevated_ok, fixed, expect_elevated,
                                expect_text):
     monkeypatch.delenv("WOP_ASSUME_YES", raising=False)
+    monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
+    monkeypatch.setattr(wopkit, "OS", WIN)
     monkeypatch.setattr(wopkit, "_tty_input", lambda prompt: answer)
-    program = str(tmp_path / "game" / wopkit.SERVER_BIN)
+    program = str(tmp_path / "game" / WIN.server_bin)
     broken = win_report(rule=None, allow_inbound="False")
     reports = [broken, win_report(rule={**KIT_RULE, "program": program}) if fixed else broken]
-    monkeypatch.setattr(wopkit, "windows_network_report", lambda port: reports.pop(0) if len(reports) > 1 else reports[0])
+    monkeypatch.setattr(windows, "network_report", lambda port: reports.pop(0) if len(reports) > 1 else reports[0])
     elevated = []
-    monkeypatch.setattr(wopkit, "run_elevated", lambda script: elevated.append(script) or elevated_ok)
+    monkeypatch.setattr(WIN, "run_elevated", lambda commands, terminal: elevated.append("; ".join(commands))
+                        or elevated_ok)
     inst = {}
-    wopkit._firewall_windows(inst, tmp_path / "game", 27960)
+    wopkit._firewall_console(inst, tmp_path / "game", 27960)
     out = capsys.readouterr().out
     assert "can't join your server yet" in out and expect_text in out
     if expect_elevated:
@@ -319,27 +323,27 @@ def test_windows_firewall_flow(monkeypatch, tmp_path, capsys, answer, elevated_o
 
 
 def test_windows_firewall_all_good(monkeypatch, tmp_path, capsys):
-    program = str(tmp_path / "game" / wopkit.SERVER_BIN)
+    monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
+    monkeypatch.setattr(wopkit, "OS", WIN)
+    program = str(tmp_path / "game" / WIN.server_bin)
     report = win_report(rule={**KIT_RULE, "program": program})
     report["others"] = ["Norton Firewall"]
-    monkeypatch.setattr(wopkit, "windows_network_report", lambda port: report)
-    monkeypatch.setattr(wopkit, "run_elevated", lambda script: pytest.fail("asked for admin"))
+    monkeypatch.setattr(windows, "network_report", lambda port: report)
+    monkeypatch.setattr(WIN, "run_elevated", lambda commands, terminal: pytest.fail("asked for admin"))
     inst = {}
-    wopkit._firewall_windows(inst, tmp_path / "game", 27960)
+    wopkit._firewall_console(inst, tmp_path / "game", 27960)
     assert "OK." in capsys.readouterr().out and inst["firewall"] == program
-    wopkit._firewall_windows(inst, tmp_path / "game", 27960)
+    wopkit._firewall_console(inst, tmp_path / "game", 27960)
     assert "Norton" not in capsys.readouterr().out  # the note about another firewall shows once
 
 
-def test_network_notes(monkeypatch, capsys):
+def test_network_notes(monkeypatch):
     from wop.actions import Game
     monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: []))
-    wopkit.network_notes(27970)
-    out = capsys.readouterr().out
-    assert "connected to a network" in out and "/connect <address>:27970" in out
+    notes = " ".join(wopkit.network_notes(27970))
+    assert "connected to a network" in notes and "/connect <address>:27970" in notes
     monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: ["192.168.1.20"]))
-    wopkit.network_notes(27961)
-    assert capsys.readouterr().out == ""
+    assert wopkit.network_notes(27961) == []
 
 
 def test_join_addresses(monkeypatch):
@@ -347,12 +351,12 @@ def test_join_addresses(monkeypatch):
 
     from wop.actions import Game
     monkeypatch.setattr(Game, "lan_addresses", staticmethod(lambda: ["10.0.1.71", "172.20.112.1"]))
-    monkeypatch.setattr(wopkit, "IS_WIN", True)
+    monkeypatch.setattr(wopkit, "OS", WIN)
     out = "192.168.0.237\tEthernet\r\n10.0.1.71\tWi-Fi\r\n169.254.7.7\tBluetooth\r\n10.0.1.71\tWi-Fi\r\n"
-    monkeypatch.setattr(wopkit, "powershell", lambda script: SimpleNamespace(stdout=out))
+    monkeypatch.setattr(windows, "powershell", lambda script: SimpleNamespace(stdout=out))
     # the default route's network first; no self-assigned or duplicate addresses
     assert wopkit.join_addresses() == [("10.0.1.71", "Wi-Fi"), ("192.168.0.237", "Ethernet")]
-    monkeypatch.setattr(wopkit, "IS_WIN", False)  # Mac: just the default route's address
+    monkeypatch.setattr(wopkit, "OS", MAC)  # Mac: just the default route's address
     assert wopkit.join_addresses() == [("10.0.1.71", "")]
 
 
@@ -388,3 +392,79 @@ def test_settings_pins():
     assert len(wopkit.SETTINGS["wop_zip_sha256"]) == 64
     assert wopkit.SETTINGS["wop_zip_url"].startswith("https://github.com/PadWorld-Entertainment/")
     assert Path(wopkit.KIT / "server" / "server-friends.cfg").exists()
+
+
+# --------------------------------------------------------------------------- Linux
+
+@pytest.mark.parametrize("firewalld,query_ok,ufw_on,ufw_rules,recorded,expect_fix", [
+    (False, False, False, None, None, None),                       # no firewall
+    (True, True, False, None, None, None),                         # firewalld already allows the port
+    (True, False, False, None, None, "firewall-cmd --add-port=27960/udp"),
+    (False, False, True, "", None, "ufw allow 27960/udp"),        # ufw rules readable, port missing
+    (False, False, True, "-A ufw-user-input -p udp --dport 27960 -j ACCEPT", None, None),
+    (False, False, True, None, None, "ufw allow 27960/udp"),       # rules only readable as admin
+    (False, False, True, None, "ufw:27960", None),                 # ... but the kit allowed it before
+])
+def test_linux_firewall_check(monkeypatch, firewalld, query_ok, ufw_on, ufw_rules, recorded, expect_fix):
+    from types import SimpleNamespace
+    monkeypatch.setattr(linux, "firewalld_running", lambda: firewalld)
+    monkeypatch.setattr(linux, "_run", lambda *cmd: SimpleNamespace(returncode=0 if query_ok else 1, stdout=""))
+    monkeypatch.setattr(linux, "ufw_enabled", lambda: ufw_on)
+    monkeypatch.setattr(linux, "ufw_allows", lambda port: None if ufw_rules is None else "27960" in ufw_rules)
+    inst = {"firewall": recorded} if recorded else {}
+    check = LINUX.firewall_check("/g/wopded.x86_64", 27960, inst)
+    fixes = [p.fix for p in check.problems]
+    assert (expect_fix is None and fixes == []) or (len(fixes) == 1 and expect_fix in fixes[0])
+
+
+def test_linux_ufw_fix_is_remembered_and_undone():
+    from wop.platforms import NetworkProblem
+    inst = {}
+    LINUX.after_fix([NetworkProblem("x", "ufw allow 27961/udp comment 'WoP Server Kit'")], 27961, inst)
+    assert inst["firewall"] == "ufw:27961"
+    assert LINUX.firewall_removal(inst) == ["ufw delete allow 27961/udp"]
+    assert "--remove-port=27960/udp" in LINUX.firewall_removal({"firewall": "firewalld:27960"})[0]
+
+
+def test_linux_network_adapters(monkeypatch):
+    from types import SimpleNamespace
+    outputs = {"route": "default via 192.168.1.1 dev wlp2s0 proto dhcp metric 600\n",
+               "addr": "1: lo    inet 127.0.0.1/8 scope host lo\n"
+                       "3: wlp2s0    inet 192.168.1.42/24 brd 192.168.1.255 scope global wlp2s0\n"
+                       "4: docker0    inet 172.17.0.1/16 scope global docker0\n"}
+    monkeypatch.setattr(linux, "_run", lambda *cmd: SimpleNamespace(returncode=0, stdout=outputs["route" if "route" in cmd else "addr"]))
+    assert LINUX.network_adapters() == [("192.168.1.42", "wlp2s0")]
+
+
+def test_linux_shortcuts(tmp_path, monkeypatch):
+    monkeypatch.setattr(linux, "_run", lambda *cmd: None)
+    from wop.platforms import Shortcut
+    made = LINUX.make_shortcuts(tmp_path, [Shortcut("Start WoP Server", Path("/k/wopkit.sh"), ["start"], Path("/k"))],
+                                {"WoP Server Help": "https://example.org"})
+    assert [p.name for p in made] == ["Start WoP Server.desktop", "WoP Server Help.desktop"]
+    text = made[0].read_text()
+    assert f'Exec="{Path("/k/wopkit.sh")}" "start"' in text and "Terminal=true" in text
+    assert "Type=Link" in made[1].read_text()
+
+
+def test_fix_firewall_asks_once_and_rechecks(monkeypatch, tmp_path):
+    from wop.platforms import FirewallCheck, NetworkProblem
+    monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
+    monkeypatch.setattr(wopkit, "OS", LINUX)
+    checks = [FirewallCheck([])]
+    monkeypatch.setattr(LINUX, "firewall_check", lambda program, port, inst: checks.pop(0))
+    asked = []
+    monkeypatch.setattr(LINUX, "run_elevated", lambda commands, terminal: asked.append(commands) or True)
+    before = FirewallCheck([NetworkProblem("a", "ufw allow 27960/udp"), NetworkProblem("b", None)])
+    inst = {}
+    accepted, after = wopkit.fix_firewall(inst, tmp_path, 27960, before)
+    assert accepted and after.problems == [] and asked == [["ufw allow 27960/udp"]]
+    assert inst["firewall"] == "ufw:27960"
+
+
+def test_detect_picks_this_os():
+    import sys
+    from wop.platforms import detect
+    assert detect().name == {"win32": "windows", "darwin": "mac"}.get(sys.platform, "linux")
+    with pytest.raises(RuntimeError):
+        for_name("amiga")

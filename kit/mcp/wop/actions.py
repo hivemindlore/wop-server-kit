@@ -12,18 +12,19 @@ Rules learned from the real server:
 from __future__ import annotations
 
 import re
-import subprocess
 import socket
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
-from . import config
+from . import config, launcher
 from .catalog import (
     BOTS, GAMEMODES, MAP_GROUP_TITLES, MAP_GROUPS, Bot, WopError, check_map_fits,
     resolve_bot, resolve_gamemode, resolve_map, resolve_team,
 )
 from .config_files import set_cfg_value
+from .platforms import PlatformBehavior, detect
 from .rcon import Rcon, ServerOffline
 from .server_state import GameState, Player, clean, read_state
 from .serverlog import ServerLog
@@ -75,12 +76,21 @@ def _weapons(value: str) -> bool:
 
 
 class Game:
-    def __init__(self, rcon: Rcon | None = None, log: ServerLog | None = None, use_log: bool = True):
+    def __init__(self, rcon: Rcon | None = None, log: ServerLog | None = None, use_log: bool = True,
+                 behavior: PlatformBehavior | None = None):
         self.rcon = rcon or Rcon()
+        self._behavior = behavior
         self.use_log = use_log
         self.log = log or (ServerLog(config.cfg_dir() / "qconsole.log") if use_log else None)
 
     # ------------------------------------------------------------------ helpers
+
+    @property
+    def behavior(self) -> PlatformBehavior:
+        """What differs per OS; detected on first use unless one was passed in."""
+        if self._behavior is None:
+            self._behavior = detect()
+        return self._behavior
 
     def state(self) -> GameState:
         return read_state(self.rcon, self.log)
@@ -479,28 +489,30 @@ class Game:
     # ------------------------------------------------------------------ server control
 
     def start_server(self, wait: float = 30.0) -> dict:
+        """With the WoP Server app the server runs without a window (the app shows its log); otherwise it
+        opens in its own window, like double-clicking run-server."""
         if self.rcon.is_running(retry=True):
             return {"result": "The server is already running.", "state": self.state().to_dict()}
         if self.use_log:
             self.log = ServerLog(config.cfg_dir() / "qconsole.log")  # the new server starts a new log
-        script = config.start_script()
-        if not script.exists():
-            raise WopError(f"Can't find {script}. Run the WoP Server Kit setup again.")
-        if config.IS_MAC:
-            # Opens a Terminal window, like double-clicking the .command file
-            subprocess.run(["open", "-a", "Terminal", str(script)], check=False)
+        inst = config.install()
+        game = Path(inst.get("game_dir") or "")
+        if inst.get("hidden_server") and (game / self.behavior.server_bin).exists():
+            launcher.launch_server(self.behavior, game, config.home_dir(), self.rcon.port)
+            started = "Server started in the background; the WoP Server app shows what it's doing."
+            where = "Open the WoP Server app and look at its Logs tab."
         else:
-            # Hand the script to the running Explorer instead of starting it ourselves: AI apps can put
-            # MCP servers in a job object that kills every child when the app closes, and Explorer's
-            # child is outside that job (and runs with normal rights, like a double-click).
-            subprocess.run(["explorer.exe", str(script)], check=False)
+            script = config.start_script(self.behavior.run_script_name)
+            if not script.exists():
+                raise WopError(f"Can't find {script}. Run the WoP Server Kit setup again.")
+            self.behavior.open_in_window(script)
+            started, where = "Server started in its own window.", "Check its window for errors."
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
             time.sleep(1.0)
             if self.rcon.is_running():
-                return self._result("Server started in its own window.", wait=3.0)
-        raise WopError(f"Opened {script.name}, but the server didn't answer within {int(wait)} s. "
-                       "Check its window for errors.")
+                return self._result(started, wait=3.0)
+        raise WopError(f"The server was started, but it didn't answer within {int(wait)} s. {where}")
 
     def stop_server(self) -> dict:
         if not self.rcon.is_running():
@@ -512,7 +524,7 @@ class Game:
         for _ in range(10):
             time.sleep(1.0)
             if not self.rcon.is_running():
-                return {"result": "Server stopped. Its window shows 'press any key' and can be closed."}
+                return {"result": "Server stopped."}
         raise WopError("Sent quit, but the server is still answering.")
 
     _BLOCKED = re.compile(r"^\s*(quit|killserver|rconpassword|(seta?|sets|setu)\s+rconpassword|"

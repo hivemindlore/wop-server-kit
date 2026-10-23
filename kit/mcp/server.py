@@ -25,6 +25,7 @@ from wop import config as wop_config  # noqa: E402
 from wop import config_files  # noqa: E402
 from wop.actions import Game  # noqa: E402
 from wop.catalog import WopError  # noqa: E402
+from wop.platforms import detect  # noqa: E402
 
 INSTRUCTIONS = """\
 You control a World of PADMAN (WoP 1.7.0) game server on this computer, for players on the same
@@ -59,7 +60,7 @@ Game rules worth knowing:
 """
 
 mcp = MCPServer("wop", instructions=INSTRUCTIONS)
-game = Game()
+game = Game(behavior=detect())
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
 

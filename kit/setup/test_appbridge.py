@@ -1,0 +1,179 @@
+"""Tests for appbridge.py (run: uv run --no-project --with pytest python -m pytest kit/setup)."""
+
+import io
+import json
+
+import pytest
+
+import appbridge
+import wopkit
+from wop.platforms import FirewallCheck, NetworkProblem
+from wop.platforms.linux import LinuxBehavior
+
+
+class FakeBehavior(LinuxBehavior):
+    def __init__(self):
+        self.elevated = []
+        self.checks = [FirewallCheck([NetworkProblem("The firewall doesn't let the players in.", "allow it")])]
+
+    def firewall_check(self, program, port, inst):
+        return self.checks[0] if len(self.checks) == 1 else self.checks.pop(0)
+
+    def run_elevated(self, commands, terminal):
+        self.elevated.append((commands, terminal))
+        return True
+
+    def claude_config_paths(self):
+        return []
+
+
+class FakeRcon:
+    port = 27961
+
+    def __init__(self, running=False):
+        self.running = running
+        self.sent = []
+
+    def is_running(self, retry=False):
+        return self.running
+
+    def command(self, cmd, timeout=2.0, quiet=0.3, retry=True):
+        from wop.rcon import ServerOffline
+        if not self.running:
+            raise ServerOffline("The WoP server isn't answering.")
+        self.sent.append(cmd)
+        return ""
+
+
+@pytest.fixture
+def root(tmp_path, monkeypatch):
+    root = tmp_path / "WoPServer"
+    (root / "home" / "wop").mkdir(parents=True)
+    monkeypatch.setattr(wopkit, "ROOT", root)
+    monkeypatch.setattr(wopkit, "HOME", root / "home")
+    monkeypatch.setattr(wopkit, "CFG", root / "home" / "wop")
+    monkeypatch.setattr(wopkit, "INSTALL_JSON", root / "install.json")
+    monkeypatch.setenv("WOP_HOME", str(root / "home"))
+    monkeypatch.delenv("WOP_SKIP_FIREWALL", raising=False)
+    monkeypatch.setattr(wopkit, "OS", FakeBehavior())
+    monkeypatch.setattr(wopkit, "UI", wopkit.UI)  # the bridge swaps it; put it back afterwards
+    return root
+
+
+@pytest.fixture
+def bridge(root):
+    b = appbridge.Bridge(io.StringIO())
+    b.game.rcon = FakeRcon()
+    return b
+
+
+def ask(bridge, method, **params):
+    bridge.out.seek(0)
+    bridge.out.truncate()
+    bridge._answer({"id": 1, "method": method, "params": params})
+    lines = [json.loads(line) for line in bridge.out.getvalue().splitlines()]
+    return next(line for line in lines if line.get("id") == 1)
+
+
+def install_game(root, **extra):
+    game = root / "game"
+    (game / "wop").mkdir(parents=True)
+    (game / "wopded.x86_64").write_text("")
+    (game / "wop" / "wop_maps_1.7.0.pk3").write_text("")
+    (root / "home" / "wop" / "server-friends.cfg").write_text('set sv_hostname "Kim\'s server"\nset rconpassword "x"\n')
+    inst = {"port": 27961, "server_name": "Kim's server", "game_dir": str(game), **extra}
+    (root / "install.json").write_text(json.dumps(inst))
+    return game
+
+
+def test_hello_before_setup(bridge):
+    result = ask(bridge, "hello")["result"]
+    assert result["protocol"] == appbridge.PROTOCOL and result["installed"] is False
+    assert result["platform"] == "linux" and result["default_server_name"].endswith("WoP server")
+
+
+def test_hello_after_setup_switches_to_hidden_server(bridge, root):
+    install_game(root)
+    result = ask(bridge, "hello")["result"]
+    assert result["installed"] and result["server_name"] == "Kim's server" and result["port"] == 27961
+    assert json.loads((root / "install.json").read_text())["hidden_server"] is True
+    assert (root / "run-server.sh").exists()
+
+
+def test_unknown_and_failing_requests_answer_with_a_message(bridge):
+    assert "Unknown request" in ask(bridge, "nope")["error"]["message"]
+    assert ask(bridge, "network.check")["error"]["message"] == "The server isn't set up yet."
+
+
+def test_status_when_off_is_cheap(bridge, root):
+    install_game(root)
+    status = ask(bridge, "server.status")["result"]
+    assert status["running"] is False and status["port"] == 27961 and status["server_name"] == "Kim's server"
+
+
+def test_console_blocks_quit(bridge):
+    bridge.game.rcon.running = True
+    assert "isn't allowed" in ask(bridge, "console.run", command="quit")["error"]["message"]
+    assert bridge.game.rcon.sent == []
+
+
+def test_network_check_and_fix(bridge, root):
+    install_game(root)
+    behavior = wopkit.OS
+    check = ask(bridge, "network.check")["result"]
+    assert check["checked"] and not check["ok"] and check["can_fix"]
+    assert check["problems"] == [{"text": "The firewall doesn't let the players in.", "fixable": True}]
+    behavior.checks = [behavior.checks[0], FirewallCheck([])]
+    fixed = ask(bridge, "network.fix")["result"]
+    assert fixed["ok"] and fixed["accepted"]
+    assert behavior.elevated == [(["allow it"], False)]  # asked in a dialog, not in a text window
+
+
+def test_join_password_is_kept(bridge, root):
+    install_game(root)
+    result = ask(bridge, "server.set_join_password", password='pad "123"')["result"]
+    assert "pad123" in result["result"]
+    assert 'set g_password "pad123"' in (root / "home" / "wop" / "server-friends.cfg").read_text()
+
+
+def test_log_history_and_follow(bridge, root):
+    log = root / "home" / "wop" / "qconsole.log"
+    log.write_bytes(b"old line\n^1Pad^4King^7: hi\n")
+    history = ask(bridge, "log.history", lines=10)["result"]["lines"]
+    assert history[-1] == [{"text": "Pad", "color": "red"}, {"text": "King", "color": "blue"},
+                           {"text": ": hi", "color": None}]
+    with open(log, "ab") as f:
+        f.write(b"new line\nhalf")
+    assert bridge.tail.new_lines() == (False, ["new line"])
+    log.write_bytes(b"fresh\n")                       # a new server started a new log
+    assert bridge.tail.new_lines() == (True, ["fresh"])
+
+
+def test_ai_list_and_connect(bridge, root, tmp_path, monkeypatch):
+    monkeypatch.setattr(appbridge.ai_apps.Path, "home", classmethod(lambda cls: tmp_path))
+    apps = ask(bridge, "ai.list")["result"]["apps"]
+    ids = [app["id"] for app in apps]
+    assert "claude-desktop" not in ids and "lm-studio" in ids and "chatgpt" in ids
+    card = ask(bridge, "ai.connect", app_id="lm-studio")["result"]
+    assert card["connected"] is True
+    entry = json.loads((tmp_path / ".lmstudio" / "mcp.json").read_text())["mcpServers"]["wop-server"]
+    assert entry["args"][-1].endswith("server.py") and entry["env"]["WOP_HOME"] == str(root / "home")
+    assert ask(bridge, "ai.disconnect", app_id="lm-studio")["result"]["connected"] is False
+
+
+def test_protocol_round_trip(bridge):
+    out = bridge.out
+    bridge.run(io.StringIO('{"id": 5, "method": "hello"}\nnot json\n\n'))
+    bridge.pool.shutdown(wait=True)
+    replies = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert any(r.get("id") == 5 and "result" in r for r in replies)
+
+
+def test_setup_messages_become_events(bridge):
+    wopkit.step("Downloading World of PADMAN")
+    wopkit.say("   Unpacking...")
+    wopkit.UI.progress(50, 100)
+    events = [json.loads(line) for line in bridge.out.getvalue().splitlines()]
+    assert events == [{"event": "setup.step", "data": {"text": "Downloading World of PADMAN"}},
+                      {"event": "setup.message", "data": {"text": "Unpacking..."}},
+                      {"event": "setup.progress", "data": {"done": 50, "total": 100, "percent": 50}}]
