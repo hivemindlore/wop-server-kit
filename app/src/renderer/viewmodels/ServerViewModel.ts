@@ -39,20 +39,19 @@ export interface ServerView {
     connectLine: string | null
     password: string | null
     passwordLine: string | null
+    /** Joining from the same network, in three short steps. */
+    lanSteps: string[]
     steps: string[]
     downloadUrl: string
     warning: string | null
   } | null
   network: NetworkView
-  weapons: {
-    options: { id: 'regular' | 'instapad'; label: string; selected: boolean }[]
-    note: string
-    disabled: boolean
-  } | null
-  /** Only with InstaPad. */
-  spawnProtection: { on: boolean; label: string; hint: string; disabled: boolean } | null
+  /** Play World of PADMAN on this computer; grayed out while the game is open. */
+  play: { label: string; disabled: boolean }
   /** Friends somewhere else, over the internet; null where it isn't available (Mac). */
   online: {
+    /** What the section shows: a short explanation, the wait for the approval, the address, or a wait/problem. */
+    state: 'off' | 'approving' | 'ready' | 'waiting'
     on: boolean
     busy: boolean
     label: string
@@ -94,7 +93,7 @@ export function mapLabel(map: string): string {
   return map.replace(/^wop_/, '').replace(/(CTL|LPS|BB)$/, ' $1')
 }
 
-/** The Server tab: on/off, what's playing, who's on, how others join, and whether they can. */
+/** The My server tab: on/off, Play, what's playing, who's on, how others join, and whether they can. */
 export class ServerViewModel extends ViewModel<ServerView> {
   private server: ServerState | null = null
   private network: NetworkState | null = null
@@ -169,6 +168,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
         connectLine: join.addresses.length ? `/connect ${join.addresses[0].address}${suffix}` : null,
         password: join.join_password,
         passwordLine: join.join_password ? `/password ${join.join_password}` : null,
+        lanSteps: ['Open Multiplayer', 'Set the source to LAN', `Pick ${join.server_name} and join`],
         steps: join.how_to_join,
         downloadUrl: join.download_url,
         warning: !join.addresses.length
@@ -178,7 +178,9 @@ export class ServerViewModel extends ViewModel<ServerView> {
             : null
       },
       network: describeNetwork(this.network),
-      ...this.presentSettings(busy !== null),
+      play: this.server?.playing
+        ? { label: 'Running...', disabled: true }
+        : { label: '▶ Play World of PADMAN', disabled: false },
       online: this.presentOnline(),
       reset: {
         confirming: this.confirmingReset,
@@ -254,18 +256,6 @@ export class ServerViewModel extends ViewModel<ServerView> {
     await this.api.call('server', 'setJoinPassword', password)
   }
 
-  chooseWeapons(id: 'regular' | 'instapad'): void {
-    const weapons = this.getSnapshot().weapons
-    if (!weapons || weapons.disabled || weapons.options.find((o) => o.selected)?.id === id) return
-    void this.api.call('server', 'setWeapons', id === 'instapad')
-  }
-
-  toggleSpawnProtection(): void {
-    const protection = this.getSnapshot().spawnProtection
-    if (!protection || protection.disabled) return
-    void this.api.call('server', 'setSpawnProtection', !protection.on)
-  }
-
   askReset(): void {
     this.confirmingReset = true
     this.changed()
@@ -281,38 +271,6 @@ export class ServerViewModel extends ViewModel<ServerView> {
     this.confirmingReset = false
     this.changed()
     void this.api.call('server', 'resetToDefaults')
-  }
-
-  private presentSettings(busy: boolean): Pick<ServerView, 'weapons' | 'spawnProtection'> {
-    const settings = this.server?.settings
-    if (!settings) return { weapons: null, spawnProtection: null }
-    const weapons: ServerView['weapons'] = {
-      options: [
-        { id: 'regular', label: 'All weapons', selected: !settings.instapad },
-        { id: 'instapad', label: 'InstaPad (one hit wins)', selected: settings.instapad }
-      ],
-      note: settings.running ? 'Switching restarts the current match.' : 'Used when the server starts.',
-      disabled: busy
-    }
-    if (!settings.instapad) return { weapons, spawnProtection: null }
-    const seconds = settings.spawn_protection_seconds
-    let hint = settings.spawn_protection
-      ? `Players can't be hurt for ${seconds} seconds after they respawn.`
-      : 'Players can be hit right after they respawn.'
-    if (!settings.spawn_protection_changeable) {
-      hint = settings.running
-        ? 'Changes apply after the server restarts once.'
-        : 'Not available with this version of World of PADMAN.'
-    }
-    return {
-      weapons,
-      spawnProtection: {
-        on: settings.spawn_protection,
-        label: 'Protection after respawning',
-        hint,
-        disabled: busy || (!settings.running && !settings.spawn_protection_changeable)
-      }
-    }
   }
 
   toggleOnline(): void {
@@ -332,6 +290,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
       server_off: 'This works while the server is on.'
     }
     return {
+      state: !on ? 'off' : online.phase === 'approving' ? 'approving' : ready ? 'ready' : 'waiting',
       on,
       busy: this.server?.onlineBusy ?? false,
       label: 'Friends anywhere can join (over the internet)',
@@ -360,6 +319,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
   }
 
   play(): void {
+    if (this.getSnapshot().play.disabled) return
     void this.api.call('server', 'play')
   }
 

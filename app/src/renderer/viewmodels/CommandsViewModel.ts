@@ -1,28 +1,6 @@
 import type { CommandsState, ServerState, WopApi } from '@shared/api'
 import { ViewModel } from './ViewModel'
 
-export interface QuickAction {
-  id: string
-  label: string
-  description: string
-  /** Asks for a bit of text first (e.g. the message to send); {text} in command is replaced by it. */
-  input?: { placeholder: string }
-  command: string
-}
-
-export const QUICK_ACTIONS: QuickAction[] = [
-  {
-    id: 'say',
-    label: 'Send a message',
-    description: 'Shows a message to everyone in the game.',
-    input: { placeholder: 'Your message' },
-    command: 'ssay {text}'  // WoP's own; the engine's say doesn't show in WoP
-  },
-  { id: 'restart', label: 'Restart the match', description: 'Scores back to 0, same map and bots.', command: 'map_restart 0' },
-  { id: 'status', label: 'Who\'s playing?', description: 'Everyone on the server with their number and ping.', command: 'status' },
-  { id: 'info', label: 'Server settings', description: 'Map, game mode, limits and more.', command: 'serverinfo' }
-]
-
 export const EXAMPLES: { command: string; meaning: string }[] = [
   { command: 'g_gravity 400', meaning: 'Moon jumps: half the normal gravity (800 is normal).' },
   { command: 'timelimit 10', meaning: 'Matches end after 10 minutes (0 = no time limit).' },
@@ -37,19 +15,16 @@ export interface CommandsView {
   busy: boolean
   canRun: boolean
   serverOff: boolean
-  quickActions: QuickAction[]
-  openAction: { action: QuickAction; text: string } | null
   examples: typeof EXAMPLES
 }
 
-/** The Commands tab: type a server command, see its answer; quick actions for the common ones. */
+/** The Commands tab: type a server command and see its answer, with examples to start from. */
 export class CommandsViewModel extends ViewModel<CommandsView> {
   private commands: CommandsState | null = null
   private server: ServerState | null = null
   private draft = ''
   private history: string[] = []
   private historyIndex = -1
-  private openAction: { action: QuickAction; text: string } | null = null
 
   constructor(api: WopApi) {
     super(api)
@@ -66,8 +41,6 @@ export class CommandsViewModel extends ViewModel<CommandsView> {
       busy,
       canRun: !busy && !serverOff && this.draft.trim().length > 0,
       serverOff,
-      quickActions: QUICK_ACTIONS,
-      openAction: this.openAction,
       examples: EXAMPLES
     }
   }
@@ -99,34 +72,6 @@ export class CommandsViewModel extends ViewModel<CommandsView> {
 
   useExample(command: string): void {
     this.setDraft(command)
-  }
-
-  quick(action: QuickAction): void {
-    if (action.input) {
-      this.openAction = { action, text: '' }
-      this.changed()
-      return
-    }
-    void this.api.call('commands', 'run', action.command)
-  }
-
-  setActionText(text: string): void {
-    if (!this.openAction) return
-    this.openAction = { ...this.openAction, text: text.slice(0, 150) }
-    this.changed()
-  }
-
-  confirmAction(): void {
-    const open = this.openAction
-    if (!open || !open.text.trim()) return
-    this.openAction = null
-    this.changed()
-    void this.api.call('commands', 'run', open.action.command.replace('{text}', open.text.trim()))
-  }
-
-  cancelAction(): void {
-    this.openAction = null
-    this.changed()
   }
 
   clear(): void {

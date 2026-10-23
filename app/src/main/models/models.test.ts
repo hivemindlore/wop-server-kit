@@ -5,9 +5,12 @@ import { FakeBridge, settle } from '../../test/fakes'
 import { AiModel } from './AiModel'
 import { AppModel } from './AppModel'
 import { CommandModel } from './CommandModel'
+import { GameModel } from './GameModel'
 import { LogModel, MAX_LINES } from './LogModel'
 import { NetworkModel } from './NetworkModel'
-import { ONLINE_POLL_MS, ONLINE_REFRESH_POLLS, ONLINE_WAIT_MS, POLL_MS, ServerModel } from './ServerModel'
+import {
+  ONLINE_POLL_MS, ONLINE_REFRESH_POLLS, ONLINE_WAIT_MS, PLAY_GRACE_MS, POLL_MS, ServerModel
+} from './ServerModel'
 import { UpdateModel, appVersionOf, type Release, type UpdateDeps } from './UpdateModel'
 
 const hello = (patch: Partial<Hello> = {}): Hello => ({
@@ -611,5 +614,106 @@ describe('LogModel', () => {
     const lines = await model.history()
     expect(lines).toHaveLength(MAX_LINES)
     expect(lines[0][0].text).toBe('10')
+  })
+})
+
+describe('ServerModel: is the game open?', () => {
+  it('counts the game as open right after Play, until it shows up or the wait is over', async () => {
+    let now = 1000
+    let open = false
+    const bridge = new FakeBridge({
+      'game.play': () => ({ result: 'World of PADMAN is starting.' }),
+      'game.playing': () => ({ playing: open })
+    })
+    const model = new ServerModel(bridge, () => now)
+    await model.checkPlaying()
+    expect(model.getState().playing).toBe(false)
+    await model.play()
+    expect(model.getState().playing).toBe(true)
+    await model.checkPlaying()
+    expect(model.getState().playing).toBe(true)        // still loading
+    await model.play()                                 // a second click does nothing
+    expect(bridge.methods().filter((m) => m === 'game.play')).toHaveLength(1)
+    now += PLAY_GRACE_MS
+    await model.checkPlaying()
+    expect(model.getState().playing).toBe(false)       // it never showed up (or was closed)
+    open = true
+    await model.checkPlaying()
+    expect(model.getState().playing).toBe(true)        // started some other way
+  })
+
+  it('shows why the game could not start', async () => {
+    const model = new ServerModel(new FakeBridge({
+      'game.play': () => {
+        throw new Error('World of PADMAN is already running.')
+      },
+      'game.playing': () => ({ playing: false })
+    }))
+    await model.play()
+    expect(model.getState()).toMatchObject({
+      playing: false, notice: { kind: 'error', text: 'World of PADMAN is already running.' }
+    })
+  })
+})
+
+describe('GameModel', () => {
+  const catalog = { modes: [{ key: 'ctl' }], bots: ['PADMAN'] }
+
+  it('loads the modes once', async () => {
+    const bridge = new FakeBridge({ 'game.catalog': () => catalog })
+    const model = new GameModel(bridge)
+    await model.loadCatalog()
+    await model.loadCatalog()
+    expect(model.getState().catalog).toEqual(catalog)
+    expect(bridge.methods()).toEqual(['game.catalog'])
+  })
+
+  it('starts a new game, says how it went and lets the server look again', async () => {
+    const changed = vi.fn()
+    const busy: (string | null)[] = []
+    const bridge = new FakeBridge({
+      'game.set': () => ({ result: 'Now playing Capture The Lolly on wop_padbaseCTL.', problems: [] })
+    })
+    const model = new GameModel(bridge, changed)
+    model.subscribe((state) => busy.push(state.busy))
+    const choice = { gamemode: 'ctl', map: 'wop_padbaseCTL', red: ['PADMAN'], blue: [], bots: [], skill: 3,
+      pointlimit: 8, timelimit: 16 }
+    await model.apply(choice)
+    expect(bridge.calls).toEqual([{ method: 'game.set', params: choice }])
+    expect(busy).toContain('applying')
+    expect(model.getState()).toMatchObject({
+      busy: null, notice: { kind: 'info', text: 'Now playing Capture The Lolly on wop_padbaseCTL.' }
+    })
+    expect(changed).toHaveBeenCalledOnce()
+  })
+
+  it('restarts the match, sends messages and keeps the game, one at a time', async () => {
+    let release = () => {}
+    const bridge = new FakeBridge({
+      'game.restart_match': () => new Promise((resolve) => (release = () => resolve({ result: 'Match restarted.' }))),
+      'game.send_message': ({ text }) => ({ result: `Said to everyone: ${text}` }),
+      'game.save_as_startup': () => ({ result: 'Saved.' })
+    })
+    const model = new GameModel(bridge)
+    const restarting = model.restartMatch()
+    await model.saveAsStartup()                 // busy: ignored
+    release()
+    await restarting
+    await model.sendMessage('   ')              // empty: nothing to send
+    await model.sendMessage(' hi ')
+    expect(bridge.calls.map((c) => [c.method, c.params])).toEqual([
+      ['game.restart_match', {}], ['game.send_message', { text: 'hi' }]
+    ])
+    expect(model.getState().notice?.text).toBe('Said to everyone: hi')
+  })
+
+  it('shows why something did not work', async () => {
+    const model = new GameModel(new FakeBridge({
+      'game.restart_match': () => {
+        throw new Error('The server is off. Start it on My server first.')
+      }
+    }))
+    await model.restartMatch()
+    expect(model.getState().notice).toEqual({ kind: 'error', text: 'The server is off. Start it on My server first.' })
   })
 })

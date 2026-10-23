@@ -8,6 +8,10 @@ export const POLL_MS = 5000
 export const ONLINE_POLL_MS = 3000
 export const ONLINE_WAIT_MS = 10 * 60 * 1000
 export const ONLINE_REFRESH_POLLS = 6   // every 6th status poll (30 s), see refresh()
+// Whether the game is open on this computer (asks the computer, not the server)
+export const PLAYING_POLL_MS = 5000
+// After Play the game takes a while to show up; Play stays "Running..." meanwhile
+export const PLAY_GRACE_MS = 15000
 
 const WAITING: OnlineStatus['phase'][] = ['approving', 'starting']
 
@@ -15,7 +19,8 @@ interface ActionResult {
   result?: string
 }
 
-/** Server on/off, what it's playing, how others join (also over the internet), and the weapons settings. */
+/** Server on/off, what it's playing, how others join (also over the internet), the weapons settings, and
+ *  whether the game itself is open on this computer (for the Play button). */
 export class ServerModel extends StateModel<ServerState> {
   private timer: ReturnType<typeof setInterval> | null = null
   private refreshing: Promise<void> | null = null
@@ -23,9 +28,14 @@ export class ServerModel extends StateModel<ServerState> {
   private onlineSince = 0
   private advancing = false
   private polls = 0
+  private playingTimer: ReturnType<typeof setInterval> | null = null
+  private playedAt = -Infinity
 
-  constructor(private readonly bridge: Bridge) {
-    super({ status: null, joinInfo: null, settings: null, online: null, busy: null, onlineBusy: false, notice: null })
+  constructor(private readonly bridge: Bridge, private readonly now: () => number = Date.now) {
+    super({
+      status: null, joinInfo: null, settings: null, online: null, busy: null, onlineBusy: false, playing: false,
+      notice: null
+    })
   }
 
   activate(): void {
@@ -34,13 +44,27 @@ export class ServerModel extends StateModel<ServerState> {
     void this.loadJoinInfo()
     void this.loadSettings()
     void this.loadOnline()
+    void this.checkPlaying()
     this.timer = setInterval(() => void this.refresh(), POLL_MS)
+    this.playingTimer = setInterval(() => void this.checkPlaying(), PLAYING_POLL_MS)
   }
 
   deactivate(): void {
     if (this.timer) clearInterval(this.timer)
+    if (this.playingTimer) clearInterval(this.playingTimer)
     this.timer = null
+    this.playingTimer = null
     this.stopWaiting()
+  }
+
+  /** Whether World of PADMAN is open here; right after Play it counts as open while it's still loading. */
+  async checkPlaying(): Promise<void> {
+    try {
+      const { playing } = await this.bridge.request<{ playing: boolean }>('game.playing')
+      this.update({ playing: playing || this.now() - this.playedAt < PLAY_GRACE_MS })
+    } catch {
+      // the kit is restarting; the next look tries again
+    }
   }
 
   refresh(): Promise<void> {
@@ -111,11 +135,16 @@ export class ServerModel extends StateModel<ServerState> {
   }
 
   async play(): Promise<void> {
+    if (this.getState().playing) return
+    this.playedAt = this.now()
+    this.update({ playing: true })
     try {
       const result = await this.bridge.request<ActionResult>('game.play')
       this.update({ notice: { kind: 'info', text: result.result ?? '' } })
     } catch (error) {
+      this.playedAt = -Infinity
       this.update({ notice: { kind: 'error', text: messageOf(error) } })
+      await this.checkPlaying()
     }
   }
 

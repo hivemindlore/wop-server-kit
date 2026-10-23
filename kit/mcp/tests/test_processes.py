@@ -219,3 +219,10 @@ def test_ps_output_is_read():
            "  103 /bin/bash -c ps\n"
            f"  104 {server()}\n")
     assert matching_pids(out, ("wopded.x86_64", "fs_homepath", str(HOME)), me=104) == [101]
+
+
+def test_game_running_means_the_game_not_the_server():
+    machine = Machine({10: server()})
+    assert machine.game_running() is False
+    machine.processes[30] = "/home/kim/wop/wop.x86_64 +connect 192.168.1.20"
+    assert machine.game_running() is True

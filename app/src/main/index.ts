@@ -9,6 +9,7 @@ import { KitInstaller } from './kitInstall'
 import { AiModel } from './models/AiModel'
 import { AppModel } from './models/AppModel'
 import { CommandModel } from './models/CommandModel'
+import { GameModel } from './models/GameModel'
 import { LogModel } from './models/LogModel'
 import { NetworkModel } from './models/NetworkModel'
 import { ServerModel } from './models/ServerModel'
@@ -131,6 +132,7 @@ function main(): void {
     network: new NetworkModel(bridge),
     commands: new CommandModel(bridge),
     ai: new AiModel(bridge),
+    game: new GameModel(bridge, () => void models.server.refresh()),
     logs: new LogModel(bridge)
   }
 
@@ -142,6 +144,7 @@ function main(): void {
       models.server.activate()
       void models.network.check()
       void models.ai.refresh()
+      void models.game.loadCatalog()
       void models.update.check(true)
     }
   })

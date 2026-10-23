@@ -30,6 +30,11 @@ def test_set_game_solo_has_no_teams(game, rcon):
                                                                 'addbot PADMAN 3 free 0 "PADMAN2"']
 
 
+def test_set_game_without_bots(game, rcon):
+    game.set_game("ctl", no_bots=True)
+    assert "kick allbots" in rcon.sent and not [c for c in rcon.sent if c.startswith("addbot")]
+
+
 def test_set_game_bots_balanced_in_team_mode(game, rcon):
     game.set_game("freeze tag", bots=["padman", "padgirl", "padking", "fatty"])
     teams = [c.split()[3] for c in rcon.sent if c.startswith("addbot")]

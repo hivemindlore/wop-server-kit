@@ -1,13 +1,21 @@
 import type { AppState, UpdateState, WopApi } from '@shared/api'
 import { ViewModel } from './ViewModel'
 
-export type TabId = 'server' | 'logs' | 'commands' | 'ai'
+export type TabId = 'server' | 'ai'
 
 export const TABS: { id: TabId; label: string }[] = [
   { id: 'server', label: 'Server' },
-  { id: 'logs', label: 'Logs' },
-  { id: 'commands', label: 'Commands' },
   { id: 'ai', label: 'AI' }
+]
+
+/** The tabs inside the Server tab. */
+export type ServerTabId = 'my-server' | 'game' | 'commands' | 'logs'
+
+export const SERVER_TABS: { id: ServerTabId; label: string }[] = [
+  { id: 'my-server', label: 'My server' },
+  { id: 'game', label: 'Game' },
+  { id: 'commands', label: 'Commands' },
+  { id: 'logs', label: 'Logs' }
 ]
 
 export interface AppView {
@@ -16,6 +24,8 @@ export interface AppView {
   errorText: string | null
   tabs: { id: TabId; label: string; active: boolean }[]
   activeTab: TabId
+  serverTabs: { id: ServerTabId; label: string; active: boolean }[]
+  activeServerTab: ServerTabId
   kitVersion: string
   appVersion: string
   /** A newer app or server kit; the app's own update comes first (it brings the newest kit along). */
@@ -29,7 +39,7 @@ export interface Storage {
   set(key: string, value: string): void
 }
 
-/** Browser storage that never throws (it can be off or full); only remembers the open tab. */
+/** Browser storage that never throws (it can be off or full); only remembers the open tabs. */
 export const safeStorage: Storage = {
   get(key) {
     try {
@@ -52,12 +62,16 @@ export class AppViewModel extends ViewModel<AppView> {
   private app: AppState | null = null
   private updates: UpdateState | null = null
   private tab: TabId
+  private serverTab: ServerTabId
   private wizardOpen = false
 
   constructor(api: WopApi, private readonly storage: Storage = safeStorage) {
     super(api)
-    const saved = storage.get('tab') as TabId | null
-    this.tab = TABS.some((t) => t.id === saved) ? saved! : 'server'
+    const saved = storage.get('tab')
+    const savedInner = storage.get('serverTab')
+    this.tab = TABS.some((t) => t.id === saved) ? (saved as TabId) : 'server'
+    this.serverTab = SERVER_TABS.some((t) => t.id === savedInner) ? (savedInner as ServerTabId) : 'my-server'
+    if (saved === 'logs' || saved === 'commands') this.serverTab = saved  // top-level tabs before 2.3
     this.mirror('app', (state) => {
       // The wizard stays open after the install itself, for its last steps (network check, done)
       if (state.phase === 'needs-setup' || state.phase === 'setting-up') this.wizardOpen = true
@@ -80,6 +94,8 @@ export class AppViewModel extends ViewModel<AppView> {
       errorText: app?.error ?? null,
       tabs: TABS.map((t) => ({ ...t, active: t.id === this.tab })),
       activeTab: this.tab,
+      serverTabs: SERVER_TABS.map((t) => ({ ...t, active: t.id === this.serverTab })),
+      activeServerTab: this.serverTab,
       kitVersion: app?.hello?.kit_version ?? '',
       appVersion: updates?.current ?? '',
       update: screen === 'main' ? (this.presentAppUpdate() ?? this.presentKitUpdate()) : null,
@@ -141,9 +157,16 @@ export class AppViewModel extends ViewModel<AppView> {
     this.changed()
   }
 
+  selectServerTab(tab: ServerTabId): void {
+    this.serverTab = tab
+    this.storage.set('serverTab', tab)
+    this.changed()
+  }
+
   finishSetup(): void {
     this.wizardOpen = false
     this.tab = 'server'
+    this.serverTab = 'my-server'
     this.changed()
   }
 

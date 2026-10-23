@@ -128,6 +128,39 @@ export interface AiApp {
   installable: boolean
 }
 
+/** A game mode as the Game tab offers it, with the maps that fit and its usual bots. */
+export interface GameModeInfo {
+  id: number
+  key: string
+  name: string
+  team_mode: boolean
+  description: string
+  maps: string[]
+  default_map: string
+  default_pointlimit: number
+  default_timelimit: number
+  default_red: string[]
+  default_blue: string[]
+  default_bots: string[]
+}
+
+export interface GameCatalog {
+  modes: GameModeInfo[]
+  bots: string[]
+}
+
+/** A whole new game, chosen on the Game tab. Team modes use red/blue, solo modes bots. */
+export interface GameChoice {
+  gamemode: string
+  map: string
+  red: string[]
+  blue: string[]
+  bots: string[]
+  skill: number
+  pointlimit: number
+  timelimit: number
+}
+
 export interface UpdateCheck {
   available: boolean
   version: string
@@ -170,6 +203,14 @@ export interface ServerState {
   busy: 'starting' | 'stopping' | 'saving' | 'resetting' | null
   /** Switching internet play on or off (on its own, so the server can be started meanwhile). */
   onlineBusy: boolean
+  /** World of PADMAN (the game) is open on this computer, or was just started with Play. */
+  playing: boolean
+  notice: Notice | null
+}
+
+export interface GameState {
+  catalog: GameCatalog | null
+  busy: 'applying' | 'restarting' | 'sending' | 'saving' | null
   notice: Notice | null
 }
 
@@ -206,6 +247,7 @@ export interface ModelStates {
   network: NetworkState
   commands: CommandsState
   ai: AiState
+  game: GameState
 }
 
 export type ModelName = keyof ModelStates
@@ -253,6 +295,15 @@ export interface ModelCommands {
     restart(appId: string): Promise<void>
     /** Downloads and installs the app, connects it to the server and opens it. */
     install(appId: string): Promise<void>
+  }
+  game: {
+    loadCatalog(): Promise<void>
+    /** Starts a whole new game right away; players stay, the bots are replaced. */
+    apply(choice: GameChoice): Promise<void>
+    restartMatch(): Promise<void>
+    sendMessage(text: string): Promise<void>
+    /** The current game becomes the one the server starts with. */
+    saveAsStartup(): Promise<void>
   }
   logs: {
     history(): Promise<LogLine[]>

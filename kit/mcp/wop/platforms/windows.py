@@ -265,6 +265,12 @@ class WindowsBehavior(PlatformBehavior):
         out = powershell(script).stdout
         return [int(line) for line in out.split() if line.isdigit() and int(line) != os.getpid()]
 
+    def game_running(self) -> bool:
+        # tasklist by program name: a tenth of a second, where asking for command lines takes almost one
+        out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {self.client_bin.name}", "/NH"],
+                             capture_output=True, text=True, creationflags=CREATE_NO_WINDOW).stdout
+        return self.client_bin.name.lower() in out.lower()
+
     def end_process(self, pid: int) -> None:
         # /T: what it started goes too (the internet-play keeper's playit program)
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True,

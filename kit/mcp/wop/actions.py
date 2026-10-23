@@ -262,7 +262,7 @@ class Game:
     # ------------------------------------------------------------------ gameplay
 
     def set_game(self, gamemode, map=None, weapons=None, red=None, blue=None, bots=None, skill=3,
-                 pointlimit=None, timelimit=None, keep_current_bots=False, lps_lives=None) -> dict:
+                 pointlimit=None, timelimit=None, keep_current_bots=False, lps_lives=None, no_bots=False) -> dict:
         state = self.state()
         mode = resolve_gamemode(gamemode)
         map_name = resolve_map(map, mode) if map else mode.default_map
@@ -270,7 +270,9 @@ class Game:
         instapad = _weapons(weapons) if weapons is not None else state.instapad
         skill = _skill(skill)
 
-        if red or blue or bots:
+        if no_bots:
+            lineup = []
+        elif red or blue or bots:
             lineup = (self._lineup(red, "red", skill) + self._lineup(blue, "blue", skill)
                       + self._lineup(bots, None, skill))
         elif keep_current_bots:

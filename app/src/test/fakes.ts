@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import type {
   AppState,
+  GameState,
   CommandModel,
   LogChange,
   ModelName,
@@ -61,6 +62,7 @@ export const serverState = (patch: Partial<ServerState> = {}): ServerState => ({
   online: null,
   busy: null,
   onlineBusy: false,
+  playing: false,
   notice: null,
   ...patch
 })
@@ -81,13 +83,21 @@ export const updateState = (patch: Partial<UpdateState> = {}): UpdateState => ({
   ...patch
 })
 
+export const gameState = (patch: Partial<GameState> = {}): GameState => ({
+  catalog: null,
+  busy: null,
+  notice: null,
+  ...patch
+})
+
 const DEFAULTS: ModelStates = {
   app: appState(),
   update: updateState(),
   server: serverState(),
   network: networkState(),
   commands: { entries: [], busy: false },
-  ai: { apps: [], busy: null, restartPending: [], notice: null }
+  ai: { apps: [], busy: null, restartPending: [], notice: null },
+  game: gameState()
 }
 
 /** window.wop for ViewModel tests: push model states in, see which commands were called. */

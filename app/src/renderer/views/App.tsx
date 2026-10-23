@@ -5,8 +5,9 @@ import { useActive, useViewModel } from '../viewmodels/ViewModel'
 import { AiTab } from './AiTab'
 import { CommandsTab } from './CommandsTab'
 import { Button, Notice, Spinner } from './components'
+import { GameTab } from './GameTab'
 import { LogsTab } from './LogsTab'
-import { ServerTab } from './ServerTab'
+import { MyServerTab } from './MyServerTab'
 import { SetupWizard } from './SetupWizard'
 
 export function App({ api }: { api: WopApi }) {
@@ -68,9 +69,29 @@ export function App({ api }: { api: WopApi }) {
         </div>
       )}
       <main className="content" role="tabpanel">
-        {view.activeTab === 'server' && <ServerTab api={api} />}
-        {view.activeTab === 'logs' && <LogsTab api={api} />}
-        {view.activeTab === 'commands' && <CommandsTab api={api} />}
+        {view.activeTab === 'server' && (
+          <div className="server-section">
+            <nav className="subtabs" role="tablist" aria-label="Server">
+              {view.serverTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  aria-selected={tab.active}
+                  className={`subtab ${tab.active ? 'subtab-active' : ''}`}
+                  onClick={() => vm.selectServerTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+            <div className="subpanel" role="tabpanel">
+              {view.activeServerTab === 'my-server' && <MyServerTab api={api} />}
+              {view.activeServerTab === 'game' && <GameTab api={api} />}
+              {view.activeServerTab === 'commands' && <CommandsTab api={api} />}
+              {view.activeServerTab === 'logs' && <LogsTab api={api} />}
+            </div>
+          </div>
+        )}
         {view.activeTab === 'ai' && <AiTab api={api} />}
       </main>
       <footer className="footer">

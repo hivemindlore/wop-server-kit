@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type {
-  AiApp, GameSettings, JoinInfo, NetworkCheck, OnlineStatus, ServerState, ServerStatus
+  AiApp, GameCatalog, GameModeInfo, GameSettings, JoinInfo, NetworkCheck, OnlineStatus, ServerState, ServerStatus
 } from '@shared/api'
-import { FakeApi, appState, networkState, serverState, settle, updateState } from '../../test/fakes'
+import { FakeApi, appState, gameState, networkState, serverState, settle, updateState } from '../../test/fakes'
 import { AiViewModel } from './AiViewModel'
 import { AppViewModel, type Storage } from './AppViewModel'
-import { CommandsViewModel, QUICK_ACTIONS } from './CommandsViewModel'
+import { CommandsViewModel } from './CommandsViewModel'
 import { LogsViewModel } from './LogsViewModel'
+import { GameViewModel } from './GameViewModel'
 import { describeNetwork } from './network'
 import { ServerViewModel, mapLabel } from './ServerViewModel'
 import { SetupViewModel } from './SetupViewModel'
@@ -247,7 +248,7 @@ describe('ServerViewModel', () => {
   })
 })
 
-describe('ServerViewModel settings', () => {
+describe('Weapons (Game tab) and reset (My server)', () => {
   const settings = (patch: Partial<GameSettings> = {}): GameSettings => ({
     running: true, instapad: false, spawn_protection: true, spawn_protection_seconds: 3,
     spawn_protection_changeable: true, ...patch
@@ -261,14 +262,22 @@ describe('ServerViewModel settings', () => {
     return { api, vm, view: vm.getSnapshot() }
   }
 
+  async function gameWith(patch: Partial<GameSettings>, busy: ServerState['busy'] = null) {
+    const api = new FakeApi()
+    api.states.server = serverState({ settings: settings(patch), busy })
+    const vm = new GameViewModel(api)
+    await settle()
+    return { api, vm, view: vm.getSnapshot() }
+  }
+
   it('offers both weapons, and protection only with InstaPad', async () => {
-    const { view } = await viewWith({})
+    const { view } = await gameWith({})
     expect(view.weapons?.options.map((o) => [o.label, o.selected])).toEqual([
       ['All weapons', true], ['InstaPad (one hit wins)', false]
     ])
     expect(view.weapons?.note).toBe('Switching restarts the current match.')
     expect(view.spawnProtection).toBeNull()
-    const off = await viewWith({ running: false })
+    const off = await gameWith({ running: false })
     expect(off.view.weapons?.note).toBe('Used when the server starts.')
   })
 
@@ -302,33 +311,33 @@ describe('ServerViewModel settings', () => {
   })
 
   it('switches weapons, but not to what is already chosen', async () => {
-    const { api, vm } = await viewWith({})
+    const { api, vm } = await gameWith({})
     vm.chooseWeapons('regular')
     vm.chooseWeapons('instapad')
     expect(api.calls).toEqual([{ model: 'server', command: 'setWeapons', args: [true] }])
   })
 
   it('toggles spawn protection in InstaPad', async () => {
-    const { api, vm, view } = await viewWith({ instapad: true })
+    const { api, vm, view } = await gameWith({ instapad: true })
     expect(view.spawnProtection).toEqual({
       on: true, label: 'Protection after respawning', disabled: false,
       hint: "Players can't be hurt for 3 seconds after they respawn."
     })
     vm.toggleSpawnProtection()
     expect(api.calls).toEqual([{ model: 'server', command: 'setSpawnProtection', args: [false] }])
-    const off = await viewWith({ instapad: true, spawn_protection: false, spawn_protection_seconds: 0 })
+    const off = await gameWith({ instapad: true, spawn_protection: false, spawn_protection_seconds: 0 })
     expect(off.view.spawnProtection?.hint).toBe('Players can be hit right after they respawn.')
   })
 
   it('explains when protection can only change after a restart, or not at all', async () => {
-    const old = await viewWith({ instapad: true, spawn_protection_changeable: false })
+    const old = await gameWith({ instapad: true, spawn_protection_changeable: false })
     expect(old.view.spawnProtection).toMatchObject({ disabled: false, hint: 'Changes apply after the server restarts once.' })
-    const none = await viewWith({ instapad: true, running: false, spawn_protection_changeable: false })
+    const none = await gameWith({ instapad: true, running: false, spawn_protection_changeable: false })
     expect(none.view.spawnProtection?.disabled).toBe(true)
   })
 
   it('locks the settings while something is being saved', async () => {
-    const { api, vm, view } = await viewWith({ instapad: true }, 'saving')
+    const { api, vm, view } = await gameWith({ instapad: true }, 'saving')
     expect(view.weapons?.disabled).toBe(true)
     vm.chooseWeapons('regular')
     vm.toggleSpawnProtection()
@@ -401,14 +410,40 @@ describe('AppViewModel', () => {
     expect(vm.getSnapshot().screen).toBe('main')
   })
 
-  it('remembers the open tab', async () => {
+  it('has Server and AI on top, and My server, Game, Commands and Logs inside Server', () => {
+    const view = new AppViewModel(new FakeApi(), memory()).getSnapshot()
+    expect(view.tabs.map((t) => t.label)).toEqual(['Server', 'AI'])
+    expect(view.serverTabs.map((t) => t.label)).toEqual(['My server', 'Game', 'Commands', 'Logs'])
+    expect(view).toMatchObject({ activeTab: 'server', activeServerTab: 'my-server' })
+  })
+
+  it('remembers the open tabs', async () => {
     const storage = memory()
     const vm = new AppViewModel(new FakeApi(), storage)
-    vm.selectTab('logs')
-    expect(storage.data.tab).toBe('logs')
-    expect(new AppViewModel(new FakeApi(), storage).getSnapshot().activeTab).toBe('logs')
+    vm.selectTab('ai')
+    vm.selectServerTab('game')
+    expect(storage.data).toMatchObject({ tab: 'ai', serverTab: 'game' })
+    expect(new AppViewModel(new FakeApi(), storage).getSnapshot()).toMatchObject({ activeTab: 'ai', activeServerTab: 'game' })
     storage.data.tab = 'nonsense'
-    expect(new AppViewModel(new FakeApi(), storage).getSnapshot().activeTab).toBe('server')
+    storage.data.serverTab = 'nonsense'
+    expect(new AppViewModel(new FakeApi(), storage).getSnapshot())
+      .toMatchObject({ activeTab: 'server', activeServerTab: 'my-server' })
+  })
+
+  it('opens Logs or Commands inside Server for people who had them open before', () => {
+    const storage = memory()
+    storage.data.tab = 'logs'
+    expect(new AppViewModel(new FakeApi(), storage).getSnapshot())
+      .toMatchObject({ activeTab: 'server', activeServerTab: 'logs' })
+  })
+
+  it('opens My server after the setup', () => {
+    const storage = memory()
+    storage.data.tab = 'ai'
+    storage.data.serverTab = 'logs'
+    const vm = new AppViewModel(new FakeApi(), storage)
+    vm.finishSetup()
+    expect(vm.getSnapshot()).toMatchObject({ activeTab: 'server', activeServerTab: 'my-server' })
   })
 
   it('offers kit updates', async () => {
@@ -606,17 +641,6 @@ describe('CommandsViewModel', () => {
     vm.setDraft('status')
     expect(vm.getSnapshot()).toMatchObject({ serverOff: true, canRun: false })
   })
-
-  it('asks for the message before sending it', async () => {
-    const api = new FakeApi()
-    const vm = new CommandsViewModel(api)
-    vm.quick(QUICK_ACTIONS.find((a) => a.id === 'say')!)
-    expect(vm.getSnapshot().openAction).not.toBeNull()
-    vm.setActionText('Dinner is ready!')
-    vm.confirmAction()
-    vm.quick(QUICK_ACTIONS.find((a) => a.id === 'restart')!)
-    expect(api.calls.map((c) => c.args[0])).toEqual(['ssay Dinner is ready!', 'map_restart 0'])
-  })
 })
 
 describe('AiViewModel', () => {
@@ -729,5 +753,172 @@ describe('LogsViewModel', () => {
     api.pushLogs({ type: 'reset' })
     vm.setFilter('')
     expect(vm.getSnapshot().emptyText).toContain('Start the server')
+  })
+})
+
+describe('ServerViewModel: Play and how others join', () => {
+  it('grays out Play while the game is open', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({ status: running })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().play).toEqual({ label: '▶ Play World of PADMAN', disabled: false })
+    vm.play()
+    expect(api.called()).toEqual(['server.play'])
+    api.push('server', serverState({ status: running, playing: true }))
+    expect(vm.getSnapshot().play).toEqual({ label: 'Running...', disabled: true })
+    vm.play()
+    expect(api.called()).toEqual(['server.play'])
+  })
+
+  it('explains joining from home in three steps with the server name', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({ status: running, joinInfo: join })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().join?.lanSteps).toEqual(['Open Multiplayer', 'Set the source to LAN', 'Pick Bro night and join'])
+    expect(vm.getSnapshot().join?.passwordLine).toBe('/password pad123')
+    api.push('server', serverState({ status: running, joinInfo: { ...join, join_password: null } }))
+    expect(vm.getSnapshot().join?.passwordLine).toBeNull()
+  })
+
+  it('shows one internet-play state at a time', async () => {
+    const api = new FakeApi()
+    const vm = new ServerViewModel(api)
+    await settle()
+    const states: [Partial<OnlineStatus>, string][] = [
+      [{ enabled: false, phase: 'off', address: null, port: null }, 'off'],
+      [{ phase: 'approving', approve_url: 'https://playit.gg/claim/x', address: null, port: null }, 'approving'],
+      [{ phase: 'server_off', address: null, port: null }, 'waiting'],
+      [{}, 'ready']
+    ]
+    for (const [patch, state] of states) {
+      api.push('server', serverState({ status: running, joinInfo: join, online: online(patch) }))
+      expect(vm.getSnapshot().online?.state).toBe(state)
+    }
+  })
+})
+
+describe('GameViewModel', () => {
+  const mode = (patch: Partial<GameModeInfo>): GameModeInfo => ({
+    id: 6, key: 'tffa', name: 'Team Free For All', team_mode: true, description: 'Team deathmatch.',
+    maps: ['wop_padgarden', 'wop_padkitchen'], default_map: 'wop_padgarden', default_pointlimit: 64,
+    default_timelimit: 16, default_red: ['PADMAN', 'PadGirl'], default_blue: ['FatPad'], default_bots: [], ...patch
+  })
+  const catalog: GameCatalog = {
+    modes: [
+      mode({}),
+      mode({ id: 8, key: 'ctl', name: 'Capture The Lolly', maps: ['wop_padbaseCTL', 'wop_journeyCTL'],
+        default_map: 'wop_padbaseCTL', default_pointlimit: 8, default_red: ['PADMAN'], default_blue: ['PadKing'] }),
+      mode({ id: 0, key: 'ffa', name: 'Free For All', team_mode: false, default_map: 'wop_padgarden',
+        default_pointlimit: 32, default_red: [], default_blue: [], default_bots: ['PADMAN', 'PadGirl', 'PadKing'] })
+    ],
+    bots: ['PADMAN', 'PadGirl', 'PadKing', 'FatPad']
+  }
+
+  async function gameTab(status: ServerStatus = running) {
+    const api = new FakeApi()
+    api.states.server = serverState({ status })
+    api.states.game = gameState({ catalog })
+    const vm = new GameViewModel(api)
+    await settle()
+    return { api, vm }
+  }
+
+  it('shows what is playing now', async () => {
+    const { vm } = await gameTab()
+    expect(vm.getSnapshot()).toMatchObject({
+      serverOn: true,
+      nowPlaying: { mode: 'Capture The Lolly', map: 'padbase CTL', weapons: 'InstaPad (one hit wins)',
+        limits: 'first to 8 points or 15 minutes', people: '1 player and 2 bots' }
+    })
+  })
+
+  it('starts the new game from the current mode and map', async () => {
+    const { vm } = await gameTab()
+    const draft = vm.getSnapshot().draft!
+    expect(draft.modes.find((m) => m.selected)?.name).toBe('Capture The Lolly')
+    expect(draft.maps.map((m) => [m.label, m.selected])).toEqual([['padbase CTL', true], ['journey CTL', false]])
+    expect(draft.lists.map((l) => [l.label, l.bots])).toEqual([['Red Pads', ['PADMAN']], ['Blue Noses', ['PadKing']]])
+    expect(draft).toMatchObject({ points: 8, minutes: 15, canApply: true, applyLabel: 'Start this game' })
+  })
+
+  it('picking a mode brings its usual map, bots and limits', async () => {
+    const { vm } = await gameTab()
+    vm.pickMode('ffa')
+    const draft = vm.getSnapshot().draft!
+    expect(draft.maps.find((m) => m.selected)?.id).toBe('wop_padgarden')
+    expect(draft.lists).toEqual([{ id: 'bots', label: 'Bots', tone: 'none', bots: ['PADMAN', 'PadGirl', 'PadKing'] }])
+    expect(draft.points).toBe(32)
+    vm.pickMap('wop_padbaseCTL')   // doesn't fit Free For All
+    expect(vm.getSnapshot().draft!.maps.find((m) => m.selected)?.id).toBe('wop_padgarden')
+  })
+
+  it('adds and removes bots, and starts the chosen game', async () => {
+    const { api, vm } = await gameTab()
+    vm.addBot('blue', 'FatPad')
+    vm.removeBot('red', 0)
+    vm.setSkill(5)
+    vm.setPoints('3')
+    vm.setMinutes('-4')
+    vm.pickMap('wop_journeyCTL')
+    vm.apply()
+    expect(api.calls.at(-1)).toEqual({
+      model: 'game', command: 'apply', args: [{ gamemode: 'ctl', map: 'wop_journeyCTL', red: [], blue: ['PadKing', 'FatPad'],
+        bots: [], skill: 5, pointlimit: 3, timelimit: 0 }]
+    })
+    vm.resetDraft()
+    expect(vm.getSnapshot().draft!.lists.map((l) => l.bots)).toEqual([['PADMAN'], ['PadKing']])
+  })
+
+  it('counts the places and stops at a full server', async () => {
+    const { api, vm } = await gameTab({ ...running, slots: { max: 4, used: 3, free: 1 } })
+    expect(vm.getSnapshot().draft!.places).toEqual({ text: '2 bots and 1 player: 3 of 4 places', full: false })
+    vm.addBot('red', 'PadGirl')
+    expect(vm.getSnapshot().draft!.canAddBot).toBe(false)
+    vm.addBot('red', 'FatPad')
+    expect(vm.getSnapshot().draft!.lists[0].bots).toEqual(['PADMAN', 'PadGirl'])
+    vm.pickMode('ffa')   // 3 bots + 1 player = 4: still fits
+    expect(vm.getSnapshot().draft!.canApply).toBe(true)
+    vm.pickMode('tffa')
+    vm.addBot('blue', 'PadKing')   // can't: full
+    expect(vm.getSnapshot().draft!.places.full).toBe(false)
+    api.push('server', serverState({ status: { ...running, slots: { max: 3, used: 3, free: 0 } } }))
+    expect(vm.getSnapshot().draft).toMatchObject({ canApply: false, places: { full: true } })
+    expect(vm.getSnapshot().draft!.hint).toContain('more than the 3 places')
+  })
+
+  it('needs a running server to change the game', async () => {
+    const { api, vm } = await gameTab({ running: false, port: 27960, server_name: 'x' })
+    expect(vm.getSnapshot()).toMatchObject({ serverOn: false, nowPlaying: null, canSend: false })
+    expect(vm.getSnapshot().draft).toMatchObject({ canApply: false })
+    expect(vm.getSnapshot().draft!.modes.find((m) => m.selected)?.key).toBe('tffa')
+    vm.apply()
+    vm.startServer()
+    expect(api.called()).toEqual(['server.start'])
+  })
+
+  it('sends a message, restarts the match and keeps the game for the next start', async () => {
+    const { api, vm } = await gameTab()
+    expect(vm.getSnapshot().canSend).toBe(false)
+    vm.setMessage('  Dinner is ready!  ')
+    vm.sendMessage()
+    vm.restartMatch()
+    vm.saveAsStartup()
+    expect(api.calls).toEqual([
+      { model: 'game', command: 'sendMessage', args: ['Dinner is ready!'] },
+      { model: 'game', command: 'restartMatch', args: [] },
+      { model: 'game', command: 'saveAsStartup', args: [] }
+    ])
+    expect(vm.getSnapshot().message).toBe('')
+  })
+
+  it('waits while something runs', async () => {
+    const { api, vm } = await gameTab()
+    api.push('game', gameState({ catalog, busy: 'applying' }))
+    expect(vm.getSnapshot().draft).toMatchObject({ canApply: false, applyLabel: 'Starting the game...' })
+    vm.restartMatch()
+    vm.saveAsStartup()
+    expect(api.calls).toEqual([])
   })
 })

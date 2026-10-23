@@ -24,13 +24,14 @@ The easiest way: one app that sets everything up and lets you run your server wi
    - Mac may say the app "*can't be opened*": right-click the app → **Open** → **Open**. On macOS 15 or newer:
      open **System Settings** → **Privacy & Security**, scroll down and click **Open Anyway**.
    - Linux: right-click the `.AppImage` → Properties → allow it to run as a program, then double-click it.
-3. **That's it.** The app has four tabs:
+3. **That's it.** The app has two tabs, **Server** and **AI**. Server has four tabs of its own:
 
 | Tab | What you do there |
 |-----|-------------------|
-| **Server** | Turn the server on and off, **Play World of PADMAN** yourself, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Switch on **Friends anywhere can join** to let friends in other homes join over the internet too. Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. **Reset to defaults** puts the game mode, map, bots, weapons and join password back to how they were after installing (the name stays). |
-| **Logs** | Everything the server says, live, with a search box. |
-| **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
+| **Server › My server** | Turn the server on and off, **Play World of PADMAN** yourself (the button says *Running...* while the game is open), see who's playing, how others join (from home, or from anywhere with **Friends anywhere** switched on), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server, set a join password, and **Reset to defaults** puts the game mode, map, bots, weapons and join password back to how they were after installing (the name stays). |
+| **Server › Game** | What's playing now: send a message to everyone, restart the match, or keep it as the game the server starts with. Choose all weapons or InstaPad (one hit wins), with a few seconds of protection after respawning. And start a whole new game: pick the game mode, a map, the bots for each team and when a match ends. |
+| **Server › Commands** | Give the server commands, with examples to start from. |
+| **Server › Logs** | Everything the server says, live, with a search box. |
 | **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |
 
 The server runs in the background: closing the app doesn't stop it. Open the app again to see it or turn it off.

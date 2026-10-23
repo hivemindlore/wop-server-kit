@@ -15,44 +15,6 @@ export function CommandsTab({ api }: { api: WopApi }) {
 
   return (
     <div className="grid commands">
-      <Card title="Quick actions" className="span-2">
-        <div className="quick">
-          {view.quickActions.map((action) => (
-            <button
-              key={action.id}
-              className="quick-action"
-              disabled={view.serverOff}
-              onClick={() => vm.quick(action)}
-            >
-              <strong>{action.label}</strong>
-              <span>{action.description}</span>
-            </button>
-          ))}
-        </div>
-        {view.openAction && (
-          <form
-            className="inline-form"
-            onSubmit={(e) => {
-              e.preventDefault()
-              vm.confirmAction()
-            }}
-          >
-            <input
-              autoFocus
-              value={view.openAction.text}
-              placeholder={view.openAction.action.input?.placeholder}
-              onChange={(e) => vm.setActionText(e.target.value)}
-            />
-            <Button kind="primary" type="submit" disabled={!view.openAction.text.trim()}>
-              Send
-            </Button>
-            <Button kind="quiet" onClick={() => vm.cancelAction()}>
-              Cancel
-            </Button>
-          </form>
-        )}
-      </Card>
-
       <Card
         title="Server console"
         className="span-2"
@@ -64,7 +26,7 @@ export function CommandsTab({ api }: { api: WopApi }) {
           )
         }
       >
-        {view.serverOff && <Notice kind="warn">The server is off. Start it on the Server tab to use commands.</Notice>}
+        {view.serverOff && <Notice kind="warn">The server is off. Start it on My server to use commands.</Notice>}
         <div className="console-output" ref={output}>
           {view.entries.length === 0 && (
             <p className="muted">Type a command below, or pick an example. The server's answer shows here.</p>

@@ -53,8 +53,10 @@ export function CopyValue(props: { label: string; value: string; copied: boolean
   return (
     <div className="copy-value">
       <span className="copy-label">{props.label}</span>
-      <code>{props.value}</code>
-      {props.hint && <span className="copy-hint">{props.hint}</span>}
+      <div className="copy-main">
+        <code>{props.value}</code>
+        {props.hint && <span className="copy-hint">{props.hint}</span>}
+      </div>
       <Button kind="quiet" onClick={props.onCopy}>
         {props.copied ? 'Copied!' : 'Copy'}
       </Button>

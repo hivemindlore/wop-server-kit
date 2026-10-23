@@ -119,6 +119,11 @@ class PlatformBehavior(ABC):
     def play_game(self, game: Path) -> None:
         subprocess.Popen([str(game / self.client_bin)], cwd=str(game), start_new_session=True)
 
+    def game_running(self) -> bool:
+        """Whether World of PADMAN (the game, not the server) is open on this computer, wherever it came from.
+        Asked every few seconds, so it has to be quick."""
+        return bool(self.find_processes(self.client_bin.name))
+
     @abstractmethod
     def run_elevated(self, commands: list[str], terminal: bool) -> bool:
         """Run commands as administrator, asking once. terminal: ask in the text window instead of a

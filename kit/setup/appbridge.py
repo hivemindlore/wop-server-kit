@@ -33,7 +33,7 @@ import ai_apps  # noqa: E402
 from wop import config  # noqa: E402
 from wop.actions import SPAWN_PROTECT_SECONDS, Game  # noqa: E402
 from wop.catalog import WopError  # noqa: E402
-from wop.config_files import set_cfg_value  # noqa: E402
+from wop.config_files import save_as_startup, set_cfg_value  # noqa: E402
 from wop.serverlog import LogTail, color_segments  # noqa: E402
 
 PROTOCOL = 1
@@ -83,6 +83,12 @@ class Bridge:
             "kit.check_update": self.check_update,
             "kit.update": self.update,
             "game.play": self.play,
+            "game.playing": self.playing,
+            "game.catalog": self.game_catalog,
+            "game.set": self.game_set,
+            "game.restart_match": self.game_restart_match,
+            "game.send_message": self.game_send_message,
+            "game.save_as_startup": self.game_save_as_startup,
             "open.log_folder": self.open_log_folder,
         }
 
@@ -404,8 +410,56 @@ class Bridge:
 
     def play(self) -> dict:
         _, game = self._require_game()
+        if self.os.game_running():
+            raise WopError("World of PADMAN is already running.")
         self.os.play_game(game)
         return {"result": "World of PADMAN is starting."}
+
+    def playing(self) -> dict:
+        return {"playing": self.os.game_running()}
+
+    # ------------------------------------------------------------------ the game on the server (Game tab)
+
+    def _require_running(self) -> None:
+        self._require_game()
+        if not self.game.rcon.is_running():
+            raise WopError("The server is off. Start it on My server first.")
+
+    def game_catalog(self) -> dict:
+        """The game modes (with the maps that fit and their usual bots) and all bots, for choosing a game."""
+        modes = []
+        for mode in Game.list_gamemodes():
+            maps = Game.list_maps(mode["key"])["maps"]
+            modes.append({"id": mode["id"], "key": mode["key"], "name": mode["name"], "team_mode": mode["team_mode"],
+                          "description": mode["description"], "maps": maps, "default_map": mode["default_map"],
+                          "default_pointlimit": mode["default_pointlimit"],
+                          "default_timelimit": mode["default_timelimit_minutes"],
+                          "default_red": mode.get("default_red", []), "default_blue": mode.get("default_blue", []),
+                          "default_bots": mode.get("default_bots", [])})
+        return {"modes": modes, "bots": [bot["name"] for bot in Game.list_bots()]}
+
+    def game_set(self, gamemode: str, map: str | None = None, red: list[str] | None = None,
+                 blue: list[str] | None = None, bots: list[str] | None = None, skill: int = 3,
+                 pointlimit: int | None = None, timelimit: int | None = None) -> dict:
+        """A whole new game at once; the weapons stay as they are. An empty bot list means no bots."""
+        self._require_running()
+        result = self.game.set_game(gamemode, map=map, red=red or None, blue=blue or None, bots=bots or None,
+                                    skill=skill, pointlimit=pointlimit, timelimit=timelimit,
+                                    no_bots=not (red or blue or bots))
+        return {"result": result["result"], "problems": result.get("problems", [])}
+
+    def game_restart_match(self) -> dict:
+        self._require_running()
+        return {"result": self.game.restart_match()["result"]}
+
+    def game_send_message(self, text: str) -> dict:
+        self._require_running()
+        return self.game.send_message(text)
+
+    def game_save_as_startup(self) -> dict:
+        self._require_running()
+        save_as_startup(self.game.state())
+        return {"result": "Saved. The server starts with this game from now on."}
 
     def open_log_folder(self) -> dict:
         self.os.open_path(wopkit.CFG)

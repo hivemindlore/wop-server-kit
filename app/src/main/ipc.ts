@@ -3,6 +3,7 @@ import { IPC, type CommandModel, type ModelCommands, type ModelName, type ModelS
 import type { AiModel } from './models/AiModel'
 import type { AppModel } from './models/AppModel'
 import type { CommandModel as CommandsModel } from './models/CommandModel'
+import type { GameModel } from './models/GameModel'
 import type { LogModel } from './models/LogModel'
 import type { NetworkModel } from './models/NetworkModel'
 import type { ServerModel } from './models/ServerModel'
@@ -15,6 +16,7 @@ export interface Models {
   network: NetworkModel
   commands: CommandsModel
   ai: AiModel
+  game: GameModel
   logs: LogModel
 }
 
@@ -30,6 +32,7 @@ const ALLOWED: { [M in CommandModel]: (keyof ModelCommands[M])[] } = {
   network: ['check', 'fix'],
   commands: ['run', 'clear'],
   ai: ['refresh', 'connect', 'disconnect', 'open', 'restart', 'install'],
+  game: ['loadCatalog', 'apply', 'restartMatch', 'sendMessage', 'saveAsStartup'],
   logs: ['history', 'openFolder']
 }
 

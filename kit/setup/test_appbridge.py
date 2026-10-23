@@ -346,3 +346,57 @@ def test_online_methods(bridge, root):
 def test_online_status_on_this_computer(bridge, root):
     status = ask(bridge, "online.status")["result"]
     assert status["phase"] == "off" and status["enabled"] is False and status["available"] is True
+
+
+def test_play_only_once(bridge, root, monkeypatch):
+    install_game(root)
+    started = []
+    monkeypatch.setattr(wopkit.OS, "play_game", lambda game: started.append(game), raising=False)
+    monkeypatch.setattr(wopkit.OS, "game_running", lambda: False, raising=False)
+    assert ask(bridge, "game.playing")["result"] == {"playing": False}
+    assert ask(bridge, "game.play")["result"]["result"] == "World of PADMAN is starting."
+    monkeypatch.setattr(wopkit.OS, "game_running", lambda: True, raising=False)
+    assert ask(bridge, "game.playing")["result"] == {"playing": True}
+    assert ask(bridge, "game.play")["error"]["message"] == "World of PADMAN is already running."
+    assert len(started) == 1
+
+
+def test_game_catalog_lists_every_mode_with_its_maps_and_bots(bridge):
+    catalog = ask(bridge, "game.catalog")["result"]
+    modes = {m["key"]: m for m in catalog["modes"]}
+    assert len(modes) == 11 and "PADMAN" in catalog["bots"]
+    ctl = modes["ctl"]
+    assert ctl["team_mode"] and all(m.endswith("CTL") for m in ctl["maps"]) and ctl["default_map"] in ctl["maps"]
+    assert ctl["default_red"] and ctl["default_blue"] and ctl["default_bots"] == []
+    assert modes["ffa"]["default_bots"] and not modes["ffa"]["team_mode"]
+    text = json.dumps(catalog).lower()
+    for word in ("g_", "cvar", "rcon"):
+        assert word not in text
+
+
+def test_game_controls_need_a_running_server(bridge, root):
+    install_game(root)
+    for method, params in [("game.set", {"gamemode": "ctl"}), ("game.restart_match", {}),
+                           ("game.send_message", {"text": "hi"}), ("game.save_as_startup", {})]:
+        assert ask(bridge, method, **params)["error"]["message"] == "The server is off. Start it on My server first."
+
+
+def test_game_set_passes_the_choice_on(bridge, root, monkeypatch):
+    install_game(root)
+    bridge.game.rcon.running = True
+    calls = []
+
+    def set_game(gamemode, **kwargs):
+        calls.append((gamemode, kwargs))
+        return {"result": "Now playing Capture The Lolly on wop_padbaseCTL with regular weapons and 2 bots.",
+                "state": {}}
+
+    monkeypatch.setattr(bridge.game, "set_game", set_game)
+    result = ask(bridge, "game.set", gamemode="ctl", map="wop_padbaseCTL", red=["PADMAN"], blue=["PadKing"],
+                 skill=4, pointlimit=5, timelimit=10)["result"]
+    assert result == {"result": "Now playing Capture The Lolly on wop_padbaseCTL with regular weapons and 2 bots.",
+                      "problems": []}
+    assert calls[0] == ("ctl", {"map": "wop_padbaseCTL", "red": ["PADMAN"], "blue": ["PadKing"], "bots": None,
+                                "skill": 4, "pointlimit": 5, "timelimit": 10, "no_bots": False})
+    ask(bridge, "game.set", gamemode="ffa", bots=[])
+    assert calls[1][1]["no_bots"] is True
