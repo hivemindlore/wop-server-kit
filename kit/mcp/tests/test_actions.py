@@ -203,3 +203,20 @@ def test_map_rotation(game, rcon):
     assert game.map_rotation() == ["wop_padgarden", "wop_padkitchen", "wop_padship"]
     game.rcon = LoopRcon(rcon, maplist="nonsense")
     assert game.map_rotation() == []
+
+
+def test_set_game_with_weapons_and_spawn_protection(rcon, monkeypatch):
+    from conftest import FakeRcon
+    from wop import actions
+    kit_code = FakeRcon(serverinfo=rcon.serverinfo + "g_spawnProtect       3\n")
+    game = actions.Game(kit_code, use_log=False)
+    monkeypatch.setattr(actions.time, "sleep", lambda s: None)
+    game.set_game("ffa", weapons="instapad", spawn_protection=False, bots=["padman"])
+    sent = kit_code.sent
+    assert "set g_instaPad 1" in sent
+    assert sent.index("set g_spawnProtect 0") < sent.index("map wop_padship")
+
+
+def test_spawn_protection_needs_the_kits_game_code(game, rcon):
+    game.set_game("ffa", spawn_protection=True, bots=["padman"])
+    assert not [c for c in rcon.sent if "g_spawnProtect" in c]   # plain WoP 1.7.0: always 6 seconds

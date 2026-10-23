@@ -1761,3 +1761,21 @@ select:disabled {
   align-items: center;
   justify-content: space-between;
 }
+
+/* Changes on the Game tab that aren't on the server yet */
+.action-bar-has-pending {
+  border-color: var(--accent-line);
+}
+
+.action-bar-pending {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 30%, transparent);
+}

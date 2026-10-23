@@ -678,7 +678,8 @@ describe('GameModel', () => {
     })
     const model = new GameModel(bridge, changed)
     model.subscribe((state) => busy.push(state.busy))
-    const choice = { gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'], red: ['PADMAN'], blue: [], bots: [], skill: 3,
+    const choice = { gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'], weapons: 'regular' as const,
+      spawnProtection: true, red: ['PADMAN'], blue: [], bots: [], skill: 3,
       pointlimit: 8, timelimit: 16 }
     await model.apply(choice)
     expect(bridge.calls).toEqual([{ method: 'game.set', params: choice }, { method: 'game.rotation', params: {} }])

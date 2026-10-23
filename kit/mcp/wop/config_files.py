@@ -137,6 +137,8 @@ def save_as_startup(state: GameState, cfg_dir: Path | None = None, maps: list[st
         if path.exists():
             shutil.copyfile(path, path.with_name(path.name + ".bak"))
     server_cfg.write_text(new_text, encoding="utf-8")
+    if state.spawn_protect is not None:   # InstaPad's protection after respawning (kit's game code only)
+        set_cfg_value(server_cfg, "g_spawnProtect", str(state.spawn_protect))
     teams_cfg.write_text(teams_cfg_text(state), encoding="utf-8")
     return {
         "result": "Saved. The server will start with this setup from now on.",

@@ -279,8 +279,12 @@ export function GameTab({ api }: { api: WopApi }) {
         )}
       </Section>
 
-      <footer className="action-bar">
-        <p className={`action-bar-hint ${footer.warn ? 'action-bar-warn' : ''}`}>{footer.hint}</p>
+      <footer className={`action-bar ${footer.pending ? 'action-bar-has-pending' : ''}`}>
+        <p
+          className={`action-bar-hint ${footer.warn ? 'action-bar-warn' : footer.pending ? 'action-bar-pending' : ''}`}
+        >
+          {footer.hint}
+        </p>
         <div className="action-bar-buttons">
           <Button kind="info" icon="restart" disabled={footer.restart.disabled} onClick={() => vm.restartMatch()}>
             {footer.restart.label}
@@ -296,6 +300,7 @@ export function GameTab({ api }: { api: WopApi }) {
           </Button>
           <Button kind="success" icon="check" disabled={footer.apply.disabled} onClick={() => vm.apply()}>
             {footer.apply.label}
+            {footer.pending && <span className="btn-dot" aria-label="(changes waiting)" />}
           </Button>
         </div>
       </footer>

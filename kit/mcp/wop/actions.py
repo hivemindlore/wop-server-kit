@@ -263,8 +263,10 @@ class Game:
 
     def set_game(self, gamemode, map=None, weapons=None, red=None, blue=None, bots=None, skill=3,
                  pointlimit=None, timelimit=None, keep_current_bots=False, lps_lives=None, no_bots=False,
-                 maps=None) -> dict:
-        """maps: several maps that play one after another, then start over (instead of one map)."""
+                 maps=None, spawn_protection=None) -> dict:
+        """maps: several maps that play one after another, then start over (instead of one map).
+        spawn_protection: InstaPad's few seconds of protection after respawning, on or off (only where the server
+        has the kit's game code; plain WoP 1.7.0 always uses 6 seconds)."""
         state = self.state()
         mode = resolve_gamemode(gamemode)
         loop = maploop.clean_maps(maps if maps else [map or mode.default_map], mode)
@@ -301,6 +303,8 @@ class Game:
                     f"set timelimit {int(timelimit if timelimit is not None else mode.timelimit)}"]
         if lps_lives is not None:
             commands.append(f"set g_LPS_startlives {int(lps_lives)}")
+        if spawn_protection is not None and state.spawn_protect is not None:
+            commands.append(f"set g_spawnProtect {SPAWN_PROTECT_SECONDS if spawn_protection else 0}")
         commands += maploop.define(loop) + [f"map {map_name}"] + maploop.start(loop)
         commands += [self._addbot(lb) for lb in lineup]
         problems = self._run(commands)

@@ -441,13 +441,15 @@ class Bridge:
 
     def game_set(self, gamemode: str, maps: list[str] | None = None, red: list[str] | None = None,
                  blue: list[str] | None = None, bots: list[str] | None = None, skill: int = 3,
-                 pointlimit: int | None = None, timelimit: int | None = None) -> dict:
-        """A whole new game at once; the weapons stay as they are. Several maps play one after another, then
-        start over. An empty bot list means no bots."""
+                 pointlimit: int | None = None, timelimit: int | None = None, weapons: str | None = None,
+                 spawn_protection: bool | None = None) -> dict:
+        """A whole new game at once, with the weapons and the protection after respawning (both stay as they are
+        when not given). Several maps play one after another, then start over. An empty bot list means no bots."""
         self._require_running()
-        result = self.game.set_game(gamemode, maps=maps or None, red=red or None, blue=blue or None,
-                                    bots=bots or None, skill=skill, pointlimit=pointlimit, timelimit=timelimit,
-                                    no_bots=not (red or blue or bots))
+        result = self.game.set_game(gamemode, maps=maps or None, weapons=weapons, red=red or None,
+                                    blue=blue or None, bots=bots or None, skill=skill, pointlimit=pointlimit,
+                                    timelimit=timelimit, no_bots=not (red or blue or bots),
+                                    spawn_protection=spawn_protection)
         return {"result": result["result"], "problems": result.get("problems", [])}
 
     def game_restart_match(self) -> dict:

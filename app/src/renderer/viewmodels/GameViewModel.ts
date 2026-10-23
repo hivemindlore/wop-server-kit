@@ -59,12 +59,17 @@ export interface GameView {
     save: { label: string; disabled: boolean; hint: string }
     hint: string
     warn: boolean
+    /** Something was changed on the page that isn't on the server yet. */
+    pending: boolean
   }
 }
 
 interface Draft {
   mode: string
   maps: string[]
+  /** null until the server's settings are known. */
+  instapad: boolean | null
+  protection: boolean | null
   red: string[]
   blue: string[]
   bots: string[]
@@ -87,9 +92,9 @@ function clampLimit(value: number): number {
 }
 
 /**
- * The Game tab: what's playing now, a message to everyone, the weapons, and choosing a whole new game: mode,
- * one map or several in a loop, the bots and when a match ends. A bar at the bottom restarts the match, applies
- * the new game and keeps the current game as the one the server starts with.
+ * The Game tab: what's playing now, a message to everyone, and choosing a whole new game: weapons, mode, one map
+ * or several in a loop, the bots and when a match ends. Nothing reaches the server until Apply changes. A bar at
+ * the bottom restarts the match, applies the new game and keeps the current game as the one the server starts with.
  */
 export class GameViewModel extends ViewModel<GameView> {
   private game: GameState | null = null
@@ -98,18 +103,22 @@ export class GameViewModel extends ViewModel<GameView> {
   private message = ''
   /** What's typed in the limit boxes, until it's committed (blur, Enter, Apply). */
   private typed: Partial<Record<Limit, string>> = {}
+  /** Changed since the last Apply changes. */
+  private dirty = false
 
   constructor(api: WopApi) {
     super(api)
     this.mirror('game', (state) => {
       this.game = state
       this.startDraft()
+      this.fillWeapons()
     })
     this.mirror('server', (state) => {
       const wasOn = this.server?.status?.running
       this.server = state
       if (wasOn === false && state.status?.running) void this.api.call('game', 'loadRotation')
       this.startDraft()
+      this.fillWeapons()
     })
     void this.api.call('game', 'loadRotation')
   }
@@ -124,7 +133,9 @@ export class GameViewModel extends ViewModel<GameView> {
     const rotation = this.game?.rotation ?? []
     let hint = 'Players stay connected; the map loads again and the bots are replaced.'
     let warn = false
+    const pending = this.dirty && on === true
     if (on === false) hint = 'Start the server on My server to change the game.'
+    else if (pending && !draft?.places.full) hint = 'You have changes that aren\'t on the server yet. Press Apply changes.'
     else if (draft?.places.full) {
       hint = `That's more players and bots than the ${status?.slots?.max ?? DEFAULT_PLACES} places. Take some bots out.`
       warn = true
@@ -147,7 +158,7 @@ export class GameViewModel extends ViewModel<GameView> {
       message: this.message,
       canSend: on === true && busy === null && this.message.trim().length > 0,
       sendLabel: busy === 'sending' ? 'Sending...' : 'Send',
-      ...describeWeapons(this.server?.settings, (this.server?.busy ?? null) !== null),
+      ...this.presentWeapons(busy !== null),
       draft,
       footer: {
         restart: { label: busy === 'restarting' ? 'Restarting...' : 'Restart match', disabled: on !== true || busy !== null },
@@ -161,9 +172,18 @@ export class GameViewModel extends ViewModel<GameView> {
           hint: 'The server starts with the game that is playing now.'
         },
         hint,
-        warn
+        warn,
+        pending
       }
     }
+  }
+
+  /** The weapons the next Apply changes uses; null until the server's settings are known. */
+  private presentWeapons(busy: boolean): Pick<GameView, 'weapons' | 'spawnProtection'> {
+    const settings = this.server?.settings
+    const d = this.draft
+    if (!settings || !d || d.instapad === null || d.protection === null) return { weapons: null, spawnProtection: null }
+    return describeWeapons({ instapad: d.instapad, protection: d.protection }, settings, busy)
   }
 
   private presentDraft(humans: number): GameView['draft'] {
@@ -236,10 +256,26 @@ export class GameViewModel extends ViewModel<GameView> {
     }
   }
 
+  /** The weapons and protection start as the server has them (until they're changed here). */
+  private fillWeapons(): void {
+    const settings = this.server?.settings
+    if (!this.draft || !settings || this.dirty) return
+    if (this.draft.instapad === null) this.draft.instapad = settings.instapad
+    if (this.draft.protection === null) this.draft.protection = settings.spawn_protection
+  }
+
+  /** A change on the page: shown, and not on the server until Apply changes. */
+  private edited(): void {
+    this.dirty = true
+    this.changed()
+  }
+
   private defaults(mode: GameModeInfo): Draft {
     return {
       mode: mode.key,
       maps: [mode.default_map],
+      instapad: this.draft?.instapad ?? null,
+      protection: this.draft?.protection ?? null,
       red: [...mode.default_red],
       blue: [...mode.default_blue],
       bots: [...mode.default_bots],
@@ -265,7 +301,7 @@ export class GameViewModel extends ViewModel<GameView> {
     if (!mode || this.draft?.mode === key) return
     this.draft = this.defaults(mode)
     this.typed = {}
-    this.changed()
+    this.edited()
   }
 
   /** Adds the map at the end of the loop, or takes it out (the last one stays). */
@@ -280,27 +316,27 @@ export class GameViewModel extends ViewModel<GameView> {
       if (maps.length >= MAX_MAPS) return
       this.draft = { ...this.draft, maps: [...maps, map] }
     }
-    this.changed()
+    this.edited()
   }
 
   addBot(list: BotList, name: string): void {
     if (!this.draft || !name || !this.getSnapshot().draft?.canAddBot) return
     this.draft = { ...this.draft }
     this.draft[list] = [...this.draft[list], name]
-    this.changed()
+    this.edited()
   }
 
   removeBot(list: BotList, index: number): void {
     if (!this.draft) return
     this.draft = { ...this.draft }
     this.draft[list] = this.draft[list].filter((_, i) => i !== index)
-    this.changed()
+    this.edited()
   }
 
   setSkill(skill: number): void {
     if (!this.draft || !SKILLS.some((s) => s.value === skill)) return
     this.draft = { ...this.draft, skill }
-    this.changed()
+    this.edited()
   }
 
   /** Typing in a limit box: only digits, at most three. */
@@ -309,7 +345,7 @@ export class GameViewModel extends ViewModel<GameView> {
     const digits = text.replace(/\D/g, '').slice(0, 3)
     this.typed = { ...this.typed, [which]: digits }
     if (digits) this.draft = { ...this.draft, [which]: clampLimit(Number(digits)) }
-    this.changed()
+    this.edited()
   }
 
   /** Leaving the box (or Enter): an empty box goes back to the last number. */
@@ -325,7 +361,7 @@ export class GameViewModel extends ViewModel<GameView> {
     const { [which]: _, ...rest } = this.typed
     this.typed = rest
     this.draft = { ...this.draft, [which]: clampLimit(this.draft[which] + by) }
-    this.changed()
+    this.edited()
   }
 
   /** Back to the usual maps, bots and limits of the chosen mode. */
@@ -334,7 +370,7 @@ export class GameViewModel extends ViewModel<GameView> {
     if (!mode) return
     this.draft = this.defaults(mode)
     this.typed = {}
-    this.changed()
+    this.edited()
   }
 
   apply(): void {
@@ -343,9 +379,15 @@ export class GameViewModel extends ViewModel<GameView> {
     const d = this.draft
     if (!d || this.getSnapshot().footer.apply.disabled) return
     const team = this.modeInfo(d.mode)?.team_mode ?? false
+    const settings = this.server?.settings
+    const instapad = d.instapad ?? settings?.instapad ?? this.server?.status?.weapons === 'instapad'
+    this.dirty = false
+    this.changed()
     void this.api.call('game', 'apply', {
       gamemode: d.mode,
       maps: d.maps,
+      weapons: instapad ? 'instapad' : 'regular',
+      spawnProtection: d.protection ?? settings?.spawn_protection ?? true,
       red: team ? d.red : [],
       blue: team ? d.blue : [],
       bots: team ? [] : d.bots,
@@ -383,15 +425,18 @@ export class GameViewModel extends ViewModel<GameView> {
     void this.api.call('server', 'start')
   }
 
+  /** Only the choice on the page; the server gets it with Apply changes. */
   chooseWeapons(id: 'regular' | 'instapad'): void {
     const weapons = this.getSnapshot().weapons
-    if (!weapons || weapons.disabled || weapons.options.find((o) => o.selected)?.id === id) return
-    void this.api.call('server', 'setWeapons', id === 'instapad')
+    if (!this.draft || !weapons || weapons.disabled || weapons.options.find((o) => o.selected)?.id === id) return
+    this.draft = { ...this.draft, instapad: id === 'instapad' }
+    this.edited()
   }
 
   toggleSpawnProtection(): void {
     const protection = this.getSnapshot().spawnProtection
-    if (!protection || protection.disabled) return
-    void this.api.call('server', 'setSpawnProtection', !protection.on)
+    if (!this.draft || !protection || protection.disabled) return
+    this.draft = { ...this.draft, protection: !protection.on }
+    this.edited()
   }
 }

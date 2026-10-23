@@ -262,25 +262,6 @@ describe('Weapons (Game tab) and reset (My server)', () => {
     return { api, vm, view: vm.getSnapshot() }
   }
 
-  async function gameWith(patch: Partial<GameSettings>, busy: ServerState['busy'] = null) {
-    const api = new FakeApi()
-    api.states.server = serverState({ settings: settings(patch), busy })
-    const vm = new GameViewModel(api)
-    await settle()
-    api.calls = []    // the tab asks for the map loop when it opens
-    return { api, vm, view: vm.getSnapshot() }
-  }
-
-  it('offers both weapons, and protection only with InstaPad', async () => {
-    const { view } = await gameWith({})
-    expect(view.weapons?.options.map((o) => [o.label, o.selected])).toEqual([
-      ['All weapons', true], ['InstaPad (one hit wins)', false]
-    ])
-    expect(view.weapons?.note).toBe('Switching restarts the current match.')
-    expect(view.spawnProtection).toBeNull()
-    const off = await gameWith({ running: false })
-    expect(off.view.weapons?.note).toBe('Used when the server starts.')
-  })
 
   it('resets to the defaults only after a confirmation', async () => {
     const { api, vm } = await viewWith({})
@@ -311,39 +292,6 @@ describe('Weapons (Game tab) and reset (My server)', () => {
     expect(vm.getSnapshot()).toMatchObject({ reset: { busy: true }, saving: true, power: { busy: true } })
   })
 
-  it('switches weapons, but not to what is already chosen', async () => {
-    const { api, vm } = await gameWith({})
-    vm.chooseWeapons('regular')
-    vm.chooseWeapons('instapad')
-    expect(api.calls).toEqual([{ model: 'server', command: 'setWeapons', args: [true] }])
-  })
-
-  it('toggles spawn protection in InstaPad', async () => {
-    const { api, vm, view } = await gameWith({ instapad: true })
-    expect(view.spawnProtection).toEqual({
-      on: true, label: 'Protection after respawning', disabled: false,
-      hint: "Players can't be hurt for 3 seconds after they respawn."
-    })
-    vm.toggleSpawnProtection()
-    expect(api.calls).toEqual([{ model: 'server', command: 'setSpawnProtection', args: [false] }])
-    const off = await gameWith({ instapad: true, spawn_protection: false, spawn_protection_seconds: 0 })
-    expect(off.view.spawnProtection?.hint).toBe('Players can be hit right after they respawn.')
-  })
-
-  it('explains when protection can only change after a restart, or not at all', async () => {
-    const old = await gameWith({ instapad: true, spawn_protection_changeable: false })
-    expect(old.view.spawnProtection).toMatchObject({ disabled: false, hint: 'Changes apply after the server restarts once.' })
-    const none = await gameWith({ instapad: true, running: false, spawn_protection_changeable: false })
-    expect(none.view.spawnProtection?.disabled).toBe(true)
-  })
-
-  it('locks the settings while something is being saved', async () => {
-    const { api, vm, view } = await gameWith({ instapad: true }, 'saving')
-    expect(view.weapons?.disabled).toBe(true)
-    vm.chooseWeapons('regular')
-    vm.toggleSpawnProtection()
-    expect(api.calls).toEqual([])
-  })
 })
 
 describe('describeNetwork', () => {
@@ -914,7 +862,8 @@ describe('GameViewModel', () => {
     vm.toggleMap('wop_journeyCTL')
     vm.apply()
     expect(api.calls.at(-1)).toEqual({
-      model: 'game', command: 'apply', args: [{ gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'], red: [],
+      model: 'game', command: 'apply', args: [{ gamemode: 'ctl', maps: ['wop_padbaseCTL', 'wop_journeyCTL'],
+        weapons: 'instapad', spawnProtection: true, red: [],
         blue: ['PadKing', 'FatPad'], bots: [], skill: 5, pointlimit: 3, timelimit: 10 }]
     })
     vm.resetDraft()
@@ -980,5 +929,84 @@ describe('GameViewModel', () => {
     vm.saveAsStartup()
     vm.apply()
     expect(api.calls).toEqual([])
+  })
+
+  describe('weapons', () => {
+    const settings = (patch: Partial<GameSettings> = {}): GameSettings => ({
+      running: true, instapad: false, spawn_protection: true, spawn_protection_seconds: 3,
+      spawn_protection_changeable: true, ...patch
+    })
+
+    async function weaponsTab(patch: Partial<GameSettings> = {}) {
+      const api = new FakeApi()
+      api.states.server = serverState({ status: running, settings: settings(patch) })
+      api.states.game = gameState({ catalog })
+      const vm = new GameViewModel(api)
+      await settle()
+      api.calls = []
+      return { api, vm }
+    }
+
+    it('starts from what the server uses, and protection only shows with InstaPad', async () => {
+      const { vm } = await weaponsTab()
+      expect(vm.getSnapshot().weapons?.options.map((o) => [o.label, o.selected])).toEqual([
+        ['All weapons', true], ['InstaPad (one hit wins)', false]
+      ])
+      expect(vm.getSnapshot().weapons?.note).toBe('Takes effect when you press Apply changes.')
+      expect(vm.getSnapshot().spawnProtection).toBeNull()
+      expect(vm.getSnapshot().footer.pending).toBe(false)
+    })
+
+    it('changes only the page until Apply changes', async () => {
+      const { api, vm } = await weaponsTab()
+      vm.chooseWeapons('regular')                 // already chosen: nothing changes
+      expect(vm.getSnapshot().footer.pending).toBe(false)
+      vm.chooseWeapons('instapad')
+      expect(vm.getSnapshot().spawnProtection).toEqual({
+        on: true, label: 'Protection after respawning', disabled: false,
+        hint: "Players can't be hurt for 3 seconds after they respawn."
+      })
+      vm.toggleSpawnProtection()
+      expect(vm.getSnapshot().spawnProtection?.hint).toBe('Players can be hit right after they respawn.')
+      expect(api.calls).toEqual([])               // nothing sent to the server yet
+      expect(vm.getSnapshot().footer).toMatchObject({ pending: true, hint: expect.stringContaining('Apply changes') })
+      vm.apply()
+      expect(api.calls.at(-1)).toMatchObject({
+        model: 'game', command: 'apply', args: [{ weapons: 'instapad', spawnProtection: false }]
+      })
+      expect(vm.getSnapshot().footer.pending).toBe(false)
+    })
+
+    it('every change on the page waits for Apply changes', async () => {
+      const { api, vm } = await weaponsTab()
+      vm.toggleMap('wop_journeyCTL')
+      expect(vm.getSnapshot().footer.pending).toBe(true)
+      expect(api.calls).toEqual([])
+    })
+
+    it('keeps the weapons when another mode is picked', async () => {
+      const { vm } = await weaponsTab({ instapad: true, spawn_protection: false })
+      vm.pickMode('ffa')
+      expect(vm.getSnapshot().weapons?.options.find((o) => o.selected)?.id).toBe('instapad')
+      expect(vm.getSnapshot().spawnProtection?.on).toBe(false)
+    })
+
+    it('explains when protection can only change after a restart', async () => {
+      const { vm } = await weaponsTab({ instapad: true, spawn_protection_changeable: false })
+      expect(vm.getSnapshot().spawnProtection).toMatchObject({
+        disabled: true, hint: 'Can be changed after the server restarts once.'
+      })
+      vm.toggleSpawnProtection()
+      expect(vm.getSnapshot().spawnProtection?.on).toBe(true)
+    })
+
+    it('waits while the game is being changed', async () => {
+      const { api, vm } = await weaponsTab({ instapad: true })
+      api.push('game', gameState({ catalog, busy: 'applying' }))
+      expect(vm.getSnapshot().weapons?.disabled).toBe(true)
+      vm.chooseWeapons('regular')
+      vm.toggleSpawnProtection()
+      expect(vm.getSnapshot().weapons?.options.find((o) => o.selected)?.id).toBe('instapad')
+    })
   })
 })

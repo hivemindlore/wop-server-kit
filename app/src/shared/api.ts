@@ -154,6 +154,9 @@ export interface GameChoice {
   gamemode: string
   /** One map, or several that play one after another and then start over. */
   maps: string[]
+  weapons: 'regular' | 'instapad'
+  /** InstaPad's few seconds of protection after respawning. */
+  spawnProtection: boolean
   red: string[]
   blue: string[]
   bots: string[]

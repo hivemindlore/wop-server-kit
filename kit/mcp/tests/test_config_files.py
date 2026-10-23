@@ -103,3 +103,10 @@ def test_save_as_startup_with_a_map_loop(cfg_dir):
     config_files.save_as_startup(read_state(FakeRcon()), cfg_dir, maps=["wop_padkitchen"])
     text = (cfg_dir / "server-friends.cfg").read_text(encoding="utf-8")
     assert "nextmap" not in text and "map wop_padgarden" in text   # one map: the one running now
+
+
+def test_save_as_startup_keeps_spawn_protection(cfg_dir):
+    info = FakeRcon().serverinfo + "g_spawnProtect       3\n"
+    config_files.save_as_startup(read_state(FakeRcon(serverinfo=info)), cfg_dir)
+    text = (cfg_dir / "server-friends.cfg").read_text(encoding="utf-8")
+    assert 'set g_spawnProtect "3"' in text and '"0"\n' not in text.split("g_spawnProtect", 1)[1][:12]

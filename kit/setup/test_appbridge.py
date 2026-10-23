@@ -397,10 +397,13 @@ def test_game_set_passes_the_choice_on(bridge, root, monkeypatch):
                  skill=4, pointlimit=5, timelimit=10)["result"]
     assert result == {"result": "Now playing Capture The Lolly on wop_padbaseCTL with regular weapons and 2 bots.",
                       "problems": []}
-    assert calls[0] == ("ctl", {"maps": loop, "red": ["PADMAN"], "blue": ["PadKing"], "bots": None,
-                                "skill": 4, "pointlimit": 5, "timelimit": 10, "no_bots": False})
+    assert calls[0] == ("ctl", {"maps": loop, "weapons": None, "red": ["PADMAN"], "blue": ["PadKing"], "bots": None,
+                                "skill": 4, "pointlimit": 5, "timelimit": 10, "no_bots": False,
+                                "spawn_protection": None})
+    ask(bridge, "game.set", gamemode="ctl", weapons="instapad", spawn_protection=False)
+    assert calls[1][1]["weapons"] == "instapad" and calls[1][1]["spawn_protection"] is False
     ask(bridge, "game.set", gamemode="ffa", bots=[])
-    assert calls[1][1]["no_bots"] is True
+    assert calls[2][1]["no_bots"] is True
 
 
 def test_game_rotation_and_saving_it(bridge, root, monkeypatch):
