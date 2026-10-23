@@ -18,6 +18,26 @@ class PosixBehavior(PlatformBehavior):
         subprocess.Popen(argv, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
 
+    def start_child_hidden(self, argv: list[str], cwd: Path) -> subprocess.Popen:
+        return subprocess.Popen(argv, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, close_fds=True)
+
+    def try_lock(self, path: Path) -> object | None:
+        import fcntl  # only here: the tests run this class on Windows too
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a+")  # noqa: SIM115 (kept open while the lock is held)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return None
+        return handle
+
+    def release_lock(self, handle: object) -> None:
+        import fcntl
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
     def run_script_here(self, script: Path) -> int:
         os.execv("/bin/bash", ["bash", str(script)])
         return 0  # not reached: bash replaces this process

@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["mcp==2.3.0"]
 # ///
-"""WoP MCP server: lets Claude run a World of PADMAN LAN server installed by the WoP Server Kit.
+"""WoP MCP server: lets Claude run a World of PADMAN server installed by the WoP Server Kit.
 
 Run:  uv run --script server.py              (stdio; started by Claude Desktop)
       uv run --script server.py --selftest   (setup uses this to download Python + mcp ahead of time)
@@ -29,8 +29,9 @@ from wop.platforms import detect  # noqa: E402
 
 INSTRUCTIONS = """\
 You control a World of PADMAN (WoP 1.7.0) game server on this computer, for players on the same
-home network. WoP is a free cartoon arena shooter (Quake 3 engine): players are tiny figures
-fighting on giant everyday sets (gardens, kitchens, bathrooms). The person you talk to is usually
+home network (and, when it's switched on, friends anywhere over the internet). WoP is a free cartoon
+arena shooter (Quake 3 engine): players are tiny figures fighting on giant everyday sets (gardens,
+kitchens, bathrooms). The person you talk to is usually
 not technical: explain things simply, never ask them to edit files or type console commands
 when a tool can do it, and tell them what changed in plain words.
 
@@ -38,6 +39,8 @@ How to work:
 - Call get_server_status first to see what is running (map, mode, weapons, who is on which team).
   If the server isn't running, offer to start it with start_server.
 - "How do my friends join?" -> get_join_info, then explain the steps it returns.
+- Friends in another home (not on this network) can join over the internet once set_online_play is on.
+  The first time, the host approves it once on playit.gg (free) in the browser; then call it again.
 - Use the catalog tools (list_gamemodes, list_maps, list_bots) instead of guessing names. Loose names are
   fine in every tool: "pad garden", "padgarden night", "ctl", "team ffa", "fatty".
 - Every action tool returns the new server state; check it and tell the user what changed.
@@ -212,8 +215,22 @@ def restart_match() -> dict:
 @mcp.tool(annotations=READ_ONLY)
 def get_join_info() -> dict:
     """How players join: server name, this computer's network address(es), port, join password,
-    and step-by-step instructions (including where to download World of PADMAN)."""
+    the internet address when internet play is on (online), and step-by-step instructions
+    (including where to download World of PADMAN)."""
     return _call(game.get_join_info)
+
+
+@mcp.tool()
+def set_online_play(on: Annotated[bool, Field(description="true: friends anywhere can join too, false: only this network")]) -> dict:
+    """Let friends on other networks join over the internet (through playit.gg, free), or only players on this
+    network. The setting is kept: the internet address works whenever the server runs. The first time, this
+    opens a playit.gg page in the browser where the host approves it once; when phase is 'approving', ask the
+    host to click approve there and then call this again. The result has the address and port to give friends."""
+    def switch():
+        result = game.online.enable() if on else game.online.disable()
+        result.setdefault("result", result["message"])
+        return result
+    return _call(switch)
 
 
 @mcp.tool()

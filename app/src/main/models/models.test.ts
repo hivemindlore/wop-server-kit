@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BRIDGE_PROTOCOL, type Hello } from '@shared/api'
 import { FakeBridge, settle } from '../../test/fakes'
@@ -6,7 +7,8 @@ import { AppModel } from './AppModel'
 import { CommandModel } from './CommandModel'
 import { LogModel, MAX_LINES } from './LogModel'
 import { NetworkModel } from './NetworkModel'
-import { POLL_MS, ServerModel } from './ServerModel'
+import { ONLINE_POLL_MS, ONLINE_WAIT_MS, POLL_MS, ServerModel } from './ServerModel'
+import { UpdateModel, appVersionOf, type Release, type UpdateDeps } from './UpdateModel'
 
 const hello = (patch: Partial<Hello> = {}): Hello => ({
   protocol: BRIDGE_PROTOCOL,
@@ -206,6 +208,214 @@ describe('ServerModel settings', () => {
     await settle()
     model.deactivate()
     expect(model.getState().settings?.instapad).toBe(true)
+  })
+})
+
+describe('ServerModel internet play', () => {
+  const status = (phase: string, extra: object = {}) => ({
+    available: true, enabled: phase !== 'off', phase, address: null, port: null, approve_url: null, message: '',
+    ...extra
+  })
+  const ready = () => status('online', { address: 'happy-pad.gl.ply.gg', port: 41234 })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('switches on, waits for the approval and the address, then stops asking', async () => {
+    vi.useFakeTimers()
+    const answers = [status('approving'), status('approving'), status('starting'), ready()]
+    const bridge = new FakeBridge({
+      'online.enable': () => status('approving', { approve_url: 'https://playit.gg/claim/abc' }),
+      'online.advance': () => answers.shift() ?? ready(),
+      'server.join_info': () => ({})
+    })
+    const model = new ServerModel(bridge)
+    await model.setOnline(true)
+    expect(model.getState().online?.approve_url).toBe('https://playit.gg/claim/abc')
+    await vi.advanceTimersByTimeAsync(ONLINE_POLL_MS * 6)
+    expect(model.getState().online).toMatchObject({ phase: 'online', address: 'happy-pad.gl.ply.gg' })
+    expect(bridge.methods().filter((m) => m === 'online.advance')).toHaveLength(4)
+    expect(bridge.methods().filter((m) => m === 'server.join_info').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('stops waiting when switched off, and after a while', async () => {
+    vi.useFakeTimers()
+    const bridge = new FakeBridge({
+      'online.enable': () => status('approving'),
+      'online.advance': () => status('approving'),
+      'online.disable': () => ({ ...status('off'), result: 'Only players on your network can join now.' }),
+      'server.join_info': () => ({})
+    })
+    const model = new ServerModel(bridge)
+    await model.setOnline(true)
+    await model.setOnline(false)
+    expect(model.getState().notice?.text).toBe('Only players on your network can join now.')
+    await vi.advanceTimersByTimeAsync(ONLINE_POLL_MS * 3)
+    expect(bridge.methods()).not.toContain('online.advance')
+    await model.setOnline(true)
+    await vi.advanceTimersByTimeAsync(ONLINE_WAIT_MS + ONLINE_POLL_MS * 3)
+    const asked = bridge.methods().filter((m) => m === 'online.advance').length
+    await vi.advanceTimersByTimeAsync(ONLINE_POLL_MS * 5)
+    expect(bridge.methods().filter((m) => m === 'online.advance').length).toBe(asked)
+  })
+
+  it('shows why it could not switch on', async () => {
+    const bridge = new FakeBridge({
+      'online.enable': () => {
+        throw new Error("Couldn't reach playit.gg.")
+      },
+      'online.status': () => status('off'),
+      'server.join_info': () => ({})
+    })
+    const model = new ServerModel(bridge)
+    await model.setOnline(true)
+    expect(model.getState()).toMatchObject({ onlineBusy: false, notice: { kind: 'error' }, online: { phase: 'off' } })
+  })
+
+  it('reads it again when the server starts or stops', async () => {
+    let running = false
+    const bridge = new FakeBridge({
+      'server.status': () => ({ running }),
+      'server.join_info': () => ({}),
+      'settings.get': () => ({}),
+      'online.status': () => (running ? ready() : status('server_off'))
+    })
+    const model = new ServerModel(bridge)
+    model.activate()
+    await settle()
+    expect(model.getState().online?.phase).toBe('server_off')
+    running = true
+    await model.refresh()
+    await settle()
+    model.deactivate()
+    expect(model.getState().online?.phase).toBe('online')
+  })
+})
+
+describe('UpdateModel', () => {
+  const release = (tag: string, digest: string | null = 'sha256:ABC123'): Release => ({
+    tag_name: tag,
+    html_url: 'https://github.com/x/y/releases/tag/' + tag,
+    assets: [
+      { name: `WoP-Server-Setup-${tag.replace('app-v', '')}.exe`, browser_download_url: 'https://dl/setup.exe', digest },
+      { name: 'WoP-Server-2.2.0-amd64.deb', browser_download_url: 'https://dl/x.deb', digest }
+    ]
+  })
+
+  function make(patch: Partial<UpdateDeps> = {}) {
+    const calls: string[] = []
+    const deps: UpdateDeps = {
+      current: '2.1.0',
+      repo: 'hivemindlore/wop-server-kit',
+      behavior: {
+        updateAssetName: (v) => `WoP-Server-Setup-${v}.exe`,
+        installUpdate: async (file) => {
+          calls.push(`install ${file}`)
+          return { kind: 'quit', relaunch: false }
+        }
+      },
+      folder: '/updates',
+      fetchRelease: async (url) => {
+        calls.push(url)
+        return release('app-v2.2.0')
+      },
+      download: async (url, _file, progress) => {
+        calls.push(`download ${url}`)
+        progress(50)
+        progress(100)
+      },
+      sha256: async () => 'abc123',
+      checkKit: async () => {
+        calls.push('kit')
+        return false
+      },
+      quit: (relaunch) => calls.push(`quit ${relaunch}`),
+      reveal: (file) => calls.push(`reveal ${file}`),
+      ...patch
+    }
+    return { model: new UpdateModel(deps), calls }
+  }
+
+  it('reads the app version from the release tag', () => {
+    expect(appVersionOf('app-v2.10.1')).toBe('2.10.1')
+    expect(appVersionOf('kit-1.3.0')).toBeNull()
+    expect(appVersionOf('app-v2.1')).toBeNull()
+  })
+
+  it('finds a newer app, downloads it, checks it and lets the installer take over', async () => {
+    const { model, calls } = make()
+    const percents: (number | null)[] = []
+    model.subscribe((s) => percents.push(s.percent))
+    await model.check()
+    expect(model.getState()).toMatchObject({ phase: 'available', version: '2.2.0', current: '2.1.0' })
+    expect(calls).toContain('https://api.github.com/repos/hivemindlore/wop-server-kit/releases/latest')
+    await model.install()
+    expect(percents).toContain(50)
+    expect(calls).toContain('download https://dl/setup.exe')
+    expect(calls.slice(-2)).toEqual([`install ${join('/updates', 'WoP-Server-Setup-2.2.0.exe')}`, 'quit false'])
+  })
+
+  it('says when it is up to date, and asks about the kit too', async () => {
+    const { model, calls } = make({ fetchRelease: async () => release('app-v2.1.0') })
+    await model.check()
+    expect(model.getState()).toMatchObject({ phase: 'upToDate', message: 'You have the newest version.' })
+    expect(calls).toContain('kit')
+    await model.check(true)   // the quiet check at start
+    expect(model.getState()).toMatchObject({ phase: 'idle', message: null })
+  })
+
+  it('stays quiet about older releases, other releases and computers without an installer', async () => {
+    for (const fetchRelease of [async () => release('app-v2.0.0'), async () => release('kit-v9.0.0')]) {
+      const { model } = make({ fetchRelease })
+      await model.check(true)
+      expect(model.getState().phase).toBe('idle')
+    }
+    const { model } = make({ behavior: { updateAssetName: () => null, installUpdate: async () => ({ kind: 'quit', relaunch: false }) } })
+    await model.check()
+    expect(model.getState().phase).toBe('upToDate')
+  })
+
+  it('a newer kit alone is not "the newest version"', async () => {
+    const { model } = make({ fetchRelease: async () => release('app-v2.1.0'), checkKit: async () => true })
+    await model.check()
+    expect(model.getState()).toMatchObject({ phase: 'idle', message: null })
+  })
+
+  it('refuses a download that does not match, or has nothing to check against', async () => {
+    const { model, calls } = make({ sha256: async () => 'evil' })
+    await model.check()
+    await model.install()
+    expect(model.getState()).toMatchObject({ phase: 'error', message: 'The download was damaged. Please try again.' })
+    expect(calls.some((c) => c.startsWith('install'))).toBe(false)
+    const unchecked = make({ fetchRelease: async () => release('app-v2.2.0', null) })
+    await unchecked.model.check()
+    await unchecked.model.install()
+    expect(unchecked.model.getState().phase).toBe('error')
+    expect(unchecked.calls.some((c) => c.startsWith('install'))).toBe(false)
+  })
+
+  it('explains being offline', async () => {
+    const offline = make({ fetchRelease: async () => { throw new Error('fetch failed') } })
+    await offline.model.check()
+    expect(offline.model.getState()).toMatchObject({ phase: 'error', message: expect.stringContaining('online') })
+    const broken = make({ download: async () => { throw new Error('ECONNRESET') } })
+    await broken.model.check()
+    await broken.model.install()
+    expect(broken.model.getState()).toMatchObject({ phase: 'error', version: '2.2.0', message: expect.stringContaining('Try again') })
+  })
+
+  it('hands over to the user where the app cannot replace itself', async () => {
+    const { model, calls } = make({
+      behavior: {
+        updateAssetName: (v) => `WoP-Server-Setup-${v}.exe`,
+        installUpdate: async () => ({ kind: 'manual', message: 'Drag it into Applications.', reveal: true })
+      }
+    })
+    await model.check()
+    await model.install()
+    expect(model.getState()).toMatchObject({ phase: 'manual', message: 'Drag it into Applications.' })
+    expect(calls.at(-1)).toBe(`reveal ${join('/updates', 'WoP-Server-Setup-2.2.0.exe')}`)
   })
 })
 

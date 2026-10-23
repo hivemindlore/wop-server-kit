@@ -71,4 +71,42 @@ describe('platform behaviors', () => {
     expect(new MacBehavior('arm64').defaultKitRoot()).toContain(join('Library', 'Application Support', 'WoPServer'))
     expect(new WindowsBehavior({ LOCALAPPDATA: 'C:/L' }).uvFileName).toBe('uv.exe')
   })
+
+  it('picks the installer from the release that fits this computer', () => {
+    expect(new WindowsBehavior({}).updateAssetName('2.1.0')).toBe('WoP-Server-Setup-2.1.0.exe')
+    expect(new MacBehavior('arm64').updateAssetName('2.1.0')).toBe('WoP-Server-2.1.0-arm64.dmg')
+    expect(new MacBehavior('x64').updateAssetName('2.1.0')).toBe('WoP-Server-2.1.0-x64.dmg')
+    expect(new LinuxBehavior({ APPIMAGE: '/a/WoP.AppImage' }, 'x64').updateAssetName('2.1.0'))
+      .toBe('WoP-Server-2.1.0-x86_64.AppImage')
+    expect(new LinuxBehavior({}, 'x64').updateAssetName('2.1.0')).toBe('WoP-Server-2.1.0-amd64.deb')
+    expect(new LinuxBehavior({}, 'arm64').updateAssetName('2.1.0')).toBeNull()
+  })
+
+  it('installs an update the way each OS can', async () => {
+    const ran: [string, string[], boolean][] = []
+    const runner = (code: number | null) => async (command: string, args: string[], o: { detached: boolean }) => {
+      ran.push([command, args, o.detached])
+      return code
+    }
+    expect(await new WindowsBehavior({}, runner(0)).installUpdate('C:/u/Setup.exe'))
+      .toEqual({ kind: 'quit', relaunch: false })
+    expect(ran.at(-1)).toEqual(['C:/u/Setup.exe', ['/S', '--force-run'], true])
+    expect(await new WindowsBehavior({}, runner(null)).installUpdate('C:/u/Setup.exe')).toMatchObject({ kind: 'manual', reveal: true })
+    expect(await new MacBehavior('arm64', runner(0)).installUpdate('/u/WoP.dmg'))
+      .toMatchObject({ kind: 'manual', reveal: false, message: expect.stringContaining('Applications') })
+    expect(ran.at(-1)).toEqual(['open', ['/u/WoP.dmg'], false])
+    expect(await new LinuxBehavior({}, 'x64', runner(0)).installUpdate('/u/WoP.deb')).toEqual({ kind: 'quit', relaunch: true })
+    expect(ran.at(-1)).toEqual(['pkexec', ['dpkg', '-i', '/u/WoP.deb'], false])
+    expect(await new LinuxBehavior({}, 'x64', runner(126)).installUpdate('/u/WoP.deb')).toMatchObject({ kind: 'manual' })
+  })
+
+  it('swaps a running AppImage for the new one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wop-appimage-'))
+    const appImage = join(dir, 'WoP-Server.AppImage')
+    await writeFile(appImage, 'old')
+    await writeFile(join(dir, 'new.AppImage'), 'new')
+    const result = await new LinuxBehavior({ APPIMAGE: appImage }, 'x64').installUpdate(join(dir, 'new.AppImage'))
+    expect(result).toEqual({ kind: 'quit', relaunch: true })
+    expect(await readFile(appImage, 'utf8')).toBe('new')
+  })
 })

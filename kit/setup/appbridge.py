@@ -66,6 +66,10 @@ class Bridge:
             "settings.set_spawn_protection": self.settings_set_spawn_protection,
             "network.check": self.network_check,
             "network.fix": self.network_fix,
+            "online.status": self.online_status,
+            "online.enable": self.online_enable,
+            "online.advance": self.online_advance,
+            "online.disable": self.online_disable,
             "log.history": self.log_history,
             "console.run": self.console_run,
             "ai.list": self.ai_list,
@@ -293,6 +297,22 @@ class Bridge:
         result = self._check(inst, game)
         result["accepted"] = accepted
         return result
+
+    # ------------------------------------------------------------------ playing over the internet
+
+    def online_status(self) -> dict:
+        return self.game.online.status(running=self.was_running or None)
+
+    def online_enable(self) -> dict:
+        """Switch on; then the app calls online.advance every few seconds while it waits (approval, address)."""
+        self._require_game()
+        return self.game.online.enable()
+
+    def online_advance(self) -> dict:
+        return self.game.online.advance()
+
+    def online_disable(self) -> dict:
+        return self.game.online.disable()
 
     # ------------------------------------------------------------------ log and commands
 

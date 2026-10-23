@@ -191,6 +191,8 @@ class WindowsBehavior(PlatformBehavior):
     server_bin = Path("wopded.x86_64.exe")
     client_bin = Path("wop.x86_64.exe")
     uv_name = "uv.exe"
+    playit_asset = "windows-x64"
+    exe_suffix = ".exe"
     run_script_name = "run-server.cmd"
     launcher_name = "wopkit.cmd"
     keyboard_is_stdin = True
@@ -254,6 +256,33 @@ class WindowsBehavior(PlatformBehavior):
                   "exit $r.ReturnValue")
         if powershell(script).returncode != 0:
             raise OSError("Windows didn't start the server.")
+
+    def start_child_hidden(self, argv: list[str], cwd: Path) -> subprocess.Popen:
+        return subprocess.Popen(argv, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, close_fds=True, creationflags=CREATE_NO_WINDOW)
+
+    def try_lock(self, path: Path) -> object | None:
+        import msvcrt
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a+")  # noqa: SIM115 (kept open while the lock is held)
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            handle.close()
+            return None
+        return handle
+
+    def release_lock(self, handle: object) -> None:
+        import msvcrt
+        try:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            handle.close()
+
+    def playit_socket(self, folder: Path, port: int) -> str:
+        return rf"\\.\pipe\wop-server-playit-{port}"
 
     def open_in_window(self, script: Path) -> None:
         # Hand the script to the running Explorer instead of starting it ourselves: AI apps can put

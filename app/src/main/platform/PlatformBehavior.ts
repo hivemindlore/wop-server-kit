@@ -12,4 +12,17 @@ export interface PlatformBehavior {
   readonly uvResourceDir: string
   /** Make a copied program runnable. */
   makeExecutable(path: string): Promise<void>
+  /** This computer's installer in a GitHub release (the names electron-builder.yml gives them); null: none. */
+  updateAssetName(version: string): string | null
+  /** Start installing a downloaded update (its sha256 is already checked). */
+  installUpdate(file: string): Promise<UpdateInstall>
 }
+
+export type UpdateInstall =
+  /** The app quits now; relaunch: start it again (else the installer opens it). */
+  | { kind: 'quit'; relaunch: boolean }
+  /** The user finishes it: show message (and the file, if reveal). */
+  | { kind: 'manual'; message: string; reveal: boolean }
+
+/** Starts a program and resolves with its exit code (null if it couldn't start). */
+export type Runner = (command: string, args: string[], options: { detached: boolean }) => Promise<number | null>

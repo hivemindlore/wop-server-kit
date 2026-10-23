@@ -7,6 +7,7 @@ import type {
   ModelStates,
   NetworkState,
   ServerState,
+  UpdateState,
   WopApi
 } from '@shared/api'
 import type { BridgeEvents } from '../main/bridge/BridgeClient'
@@ -57,7 +58,9 @@ export const serverState = (patch: Partial<ServerState> = {}): ServerState => ({
   status: null,
   joinInfo: null,
   settings: null,
+  online: null,
   busy: null,
+  onlineBusy: false,
   notice: null,
   ...patch
 })
@@ -69,8 +72,18 @@ export const networkState = (patch: Partial<NetworkState> = {}): NetworkState =>
   ...patch
 })
 
+export const updateState = (patch: Partial<UpdateState> = {}): UpdateState => ({
+  phase: 'idle',
+  current: '2.1.0',
+  version: '',
+  percent: null,
+  message: null,
+  ...patch
+})
+
 const DEFAULTS: ModelStates = {
   app: appState(),
+  update: updateState(),
   server: serverState(),
   network: networkState(),
   commands: { entries: [], busy: false },

@@ -57,10 +57,14 @@ export function App({ api }: { api: WopApi }) {
       </header>
       {view.update && (
         <div className="banner">
-          <span>{view.update.text}</span>
-          <Button kind="primary" disabled={view.update.busy} onClick={() => vm.updateKit()}>
-            {view.update.buttonLabel}
-          </Button>
+          <span>
+            {view.update.busy && <Spinner />} {view.update.text}
+          </span>
+          {view.update.buttonLabel && (
+            <Button kind="primary" disabled={view.update.busy} onClick={() => vm.runUpdate()}>
+              {view.update.buttonLabel}
+            </Button>
+          )}
         </div>
       )}
       <main className="content" role="tabpanel">
@@ -69,7 +73,15 @@ export function App({ api }: { api: WopApi }) {
         {view.activeTab === 'commands' && <CommandsTab api={api} />}
         {view.activeTab === 'ai' && <AiTab api={api} />}
       </main>
-      <footer className="footer">Server kit {view.kitVersion}</footer>
+      <footer className="footer">
+        <span>
+          WoP Server {view.appVersion} · Server kit {view.kitVersion}
+        </span>
+        <Button kind="quiet" disabled={view.updateCheck.busy} onClick={() => vm.checkForUpdates()}>
+          {view.updateCheck.label}
+        </Button>
+        {view.updateCheck.text && <span>{view.updateCheck.text}</span>}
+      </footer>
     </div>
   )
 }

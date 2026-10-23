@@ -1,21 +1,29 @@
-import type { GameSettings, JoinInfo, ServerState, ServerStatus } from '@shared/api'
+import type { GameSettings, JoinInfo, OnlineStatus, ServerState, ServerStatus } from '@shared/api'
 import type { Bridge } from '../bridge/BridgeClient'
 import { StateModel, messageOf } from './StateModel'
 
 // The server answers only a few questions a second and Claude needs some too, so look every 5 s
 export const POLL_MS = 5000
+// While internet play waits for the approval in the browser or for its address
+export const ONLINE_POLL_MS = 3000
+export const ONLINE_WAIT_MS = 10 * 60 * 1000
+
+const WAITING: OnlineStatus['phase'][] = ['approving', 'starting']
 
 interface ActionResult {
   result?: string
 }
 
-/** Server on/off, what it's playing, how others join, and the weapons settings. */
+/** Server on/off, what it's playing, how others join (also over the internet), and the weapons settings. */
 export class ServerModel extends StateModel<ServerState> {
   private timer: ReturnType<typeof setInterval> | null = null
   private refreshing: Promise<void> | null = null
+  private onlineTimer: ReturnType<typeof setInterval> | null = null
+  private onlineSince = 0
+  private advancing = false
 
   constructor(private readonly bridge: Bridge) {
-    super({ status: null, joinInfo: null, settings: null, busy: null, notice: null })
+    super({ status: null, joinInfo: null, settings: null, online: null, busy: null, onlineBusy: false, notice: null })
   }
 
   activate(): void {
@@ -23,12 +31,14 @@ export class ServerModel extends StateModel<ServerState> {
     void this.refresh()
     void this.loadJoinInfo()
     void this.loadSettings()
+    void this.loadOnline()
     this.timer = setInterval(() => void this.refresh(), POLL_MS)
   }
 
   deactivate(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    this.stopWaiting()
   }
 
   refresh(): Promise<void> {
@@ -63,6 +73,26 @@ export class ServerModel extends StateModel<ServerState> {
     await this.act('saving', 'settings.set_spawn_protection', { on })
   }
 
+  /**
+   * Friends anywhere can join (on), or only the home network (off). The first time, the kit opens playit.gg
+   * in the browser; until the host approves it there (and the address is ready), the kit is asked again
+   * every few seconds.
+   */
+  async setOnline(on: boolean): Promise<void> {
+    if (this.getState().onlineBusy) return
+    this.update({ onlineBusy: true, notice: null })
+    try {
+      const online = await this.bridge.request<OnlineStatus>(on ? 'online.enable' : 'online.disable')
+      this.applyOnline(online)
+      if (online.result) this.update({ notice: { kind: 'info', text: online.result } })
+    } catch (error) {
+      this.update({ notice: { kind: 'error', text: messageOf(error) } })
+      await this.loadOnline()
+    }
+    void this.loadJoinInfo()
+    this.update({ onlineBusy: false })
+  }
+
   async play(): Promise<void> {
     try {
       const result = await this.bridge.request<ActionResult>('game.play')
@@ -93,7 +123,10 @@ export class ServerModel extends StateModel<ServerState> {
       const status = await this.bridge.request<ServerStatus>('server.status')
       const { status: before, settings } = this.getState()
       this.update({ status })
-      if (before && before.running !== status.running) void this.loadJoinInfo()
+      if (before && before.running !== status.running) {
+        void this.loadJoinInfo()
+        void this.loadOnline()   // internet play follows the server
+      }
       // Started, stopped, or changed by someone else (e.g. Claude): read the settings again
       const changed = settings && status.running &&
         ((status.weapons === 'instapad') !== settings.instapad ||
@@ -110,6 +143,51 @@ export class ServerModel extends StateModel<ServerState> {
       this.update({ settings: await this.bridge.request<GameSettings>('settings.get') })
     } catch {
       // keep what we had
+    }
+  }
+
+  private async loadOnline(): Promise<void> {
+    try {
+      this.applyOnline(await this.bridge.request<OnlineStatus>('online.status'))
+    } catch {
+      // keep what we had
+    }
+  }
+
+  private applyOnline(online: OnlineStatus): void {
+    this.update({ online })
+    if (WAITING.includes(online.phase)) this.waitForOnline()
+    else this.stopWaiting()
+  }
+
+  private waitForOnline(): void {
+    if (this.onlineTimer) return
+    this.onlineSince = Date.now()
+    this.onlineTimer = setInterval(() => void this.advanceOnline(), ONLINE_POLL_MS)
+  }
+
+  private stopWaiting(): void {
+    if (this.onlineTimer) clearInterval(this.onlineTimer)
+    this.onlineTimer = null
+  }
+
+  private async advanceOnline(): Promise<void> {
+    if (this.advancing) return
+    if (Date.now() - this.onlineSince > ONLINE_WAIT_MS) {
+      this.stopWaiting()   // switching it off and on again starts a new wait
+      return
+    }
+    this.advancing = true
+    try {
+      const before = this.getState().online?.address
+      this.applyOnline(await this.bridge.request<OnlineStatus>('online.advance'))
+      if (this.getState().online?.address !== before) void this.loadJoinInfo()
+    } catch (error) {
+      this.stopWaiting()
+      this.update({ notice: { kind: 'error', text: messageOf(error) } })
+      await this.loadOnline()
+    } finally {
+      this.advancing = false
     }
   }
 

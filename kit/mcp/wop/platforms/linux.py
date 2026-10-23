@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -95,6 +96,15 @@ class LinuxBehavior(PosixBehavior):
     client_bin = Path("wop.x86_64")
     run_script_name = "run-server.sh"
     gui_elevation = ["pkexec"]
+
+    @property
+    def playit_asset(self) -> str | None:
+        machine = platform.machine().lower()
+        if machine in ("x86_64", "amd64"):
+            return "linux-x64"
+        if machine in ("aarch64", "arm64"):
+            return "linux-arm64"
+        return None
 
     def default_root(self) -> Path:
         data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")

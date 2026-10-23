@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AiApp, GameSettings, JoinInfo, NetworkCheck, ServerState, ServerStatus } from '@shared/api'
-import { FakeApi, appState, networkState, serverState, settle } from '../../test/fakes'
+import type {
+  AiApp, GameSettings, JoinInfo, NetworkCheck, OnlineStatus, ServerState, ServerStatus
+} from '@shared/api'
+import { FakeApi, appState, networkState, serverState, settle, updateState } from '../../test/fakes'
 import { AiViewModel } from './AiViewModel'
 import { AppViewModel, type Storage } from './AppViewModel'
 import { CommandsViewModel, QUICK_ACTIONS } from './CommandsViewModel'
@@ -38,8 +40,20 @@ const join: JoinInfo = {
   connect_commands: [],
   how_to_join: [],
   in_lan_list: true,
-  download_url: 'https://worldofpadman.net/en/download/'
+  download_url: 'https://worldofpadman.net/en/download/',
+  online: null
 }
+
+const online = (patch: Partial<OnlineStatus> = {}): OnlineStatus => ({
+  available: true,
+  enabled: true,
+  phase: 'online',
+  address: 'happy-pad.gl.ply.gg',
+  port: 41234,
+  approve_url: null,
+  message: 'Friends anywhere can join: address happy-pad.gl.ply.gg, port 41234.',
+  ...patch
+})
 
 const check = (patch: Partial<NetworkCheck> = {}): NetworkCheck => ({
   checked: true,
@@ -55,6 +69,79 @@ const check = (patch: Partial<NetworkCheck> = {}): NetworkCheck => ({
 })
 
 const JARGON = /\b(mcp|rcon|cvar|stdio|json|udp)\b/i
+
+describe('ServerViewModel: internet play', () => {
+  it("is hidden where it isn't available, and until it is known", async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({ status: running, joinInfo: join })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().online).toBeNull()
+    api.push('server', serverState({
+      status: running, joinInfo: join, online: online({ available: false, enabled: false, phase: 'off' })
+    }))
+    expect(vm.getSnapshot().online).toBeNull()
+  })
+
+  it('switches on, and shows the approval wait with a way back', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({
+      joinInfo: join, online: online({ enabled: false, phase: 'off', address: null, port: null })
+    })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().online).toMatchObject({ on: false, address: null, approveUrl: null, note: null })
+    expect(vm.getSnapshot().online?.hint).toContain('playit.gg (free)')
+    vm.toggleOnline()
+    expect(api.calls.at(-1)).toEqual({ model: 'server', command: 'setOnline', args: [true] })
+    api.push('server', serverState({
+      joinInfo: join,
+      online: online({ phase: 'approving', address: null, port: null, approve_url: 'https://playit.gg/claim/abc' })
+    }))
+    const view = vm.getSnapshot().online!
+    expect(view).toMatchObject({ on: true, approveUrl: 'https://playit.gg/claim/abc', address: null })
+    expect(view.note).toContain('Approve it on playit.gg')
+    vm.toggleOnline()   // Cancel
+    expect(api.calls.at(-1)).toEqual({ model: 'server', command: 'setOnline', args: [false] })
+  })
+
+  it('shows the internet address and suggests a join password', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({ status: running, joinInfo: { ...join, join_password: null }, online: online() })
+    const vm = new ServerViewModel(api)
+    await settle()
+    const view = vm.getSnapshot().online!
+    expect(view).toMatchObject({
+      address: 'happy-pad.gl.ply.gg',
+      port: '41234',
+      connectLine: '/connect happy-pad.gl.ply.gg:41234',
+      note: null,
+      problem: null
+    })
+    expect(view.passwordTip).toContain('join password')
+    expect(JSON.stringify(view)).not.toMatch(JARGON)
+    expect(JSON.stringify(view)).not.toMatch(/tunnel|agent/i)
+    api.push('server', serverState({ status: running, joinInfo: join, online: online() }))
+    expect(vm.getSnapshot().online?.passwordTip).toBeNull()
+  })
+
+  it('says when it works, and what went wrong', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({ joinInfo: join, online: online({ phase: 'server_off' }) })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().online).toMatchObject({
+      address: 'happy-pad.gl.ply.gg', note: 'This works while the server is on.'
+    })
+    api.push('server', serverState({
+      joinInfo: join, online: online({ phase: 'problem', message: 'playit.gg switched it off.' })
+    }))
+    expect(vm.getSnapshot().online?.problem).toBe('playit.gg switched it off.')
+    api.push('server', serverState({ joinInfo: join, online: online(), onlineBusy: true }))
+    vm.toggleOnline()
+    expect(api.called()).not.toContain('server.setOnline')
+  })
+})
 
 describe('ServerViewModel', () => {
   it('describes a running game in plain words', async () => {
@@ -288,6 +375,48 @@ describe('AppViewModel', () => {
     expect(vm.getSnapshot().update?.text).toContain('2.1.0')
     vm.updateKit()
     expect(api.called()).toEqual(['app.updateKit'])
+    vm.runUpdate()
+    expect(api.called()).toEqual(['app.updateKit', 'app.updateKit'])
+  })
+
+  it('offers a new app first, and shows its download', async () => {
+    const api = new FakeApi()
+    api.states.app = appState({ update: { available: true, version: '2.1.1', busy: false } })
+    api.states.update = updateState({ phase: 'available', version: '2.2.0' })
+    const vm = new AppViewModel(api, memory())
+    await settle()
+    expect(vm.getSnapshot().update).toMatchObject({
+      text: 'A new version of WoP Server is ready (2.2.0).', buttonLabel: 'Update now', action: 'app'
+    })
+    vm.runUpdate()
+    expect(api.called()).toEqual(['update.install'])
+    api.push('update', updateState({ phase: 'downloading', version: '2.2.0', percent: 40 }))
+    expect(vm.getSnapshot().update).toMatchObject({ text: 'Downloading WoP Server 2.2.0... 40%', busy: true, buttonLabel: null })
+    vm.runUpdate()
+    expect(api.called()).toEqual(['update.install'])
+    api.push('update', updateState({ phase: 'error', version: '2.2.0', message: 'The download was damaged.' }))
+    expect(vm.getSnapshot().update).toMatchObject({ text: 'The download was damaged.', buttonLabel: 'Try again' })
+  })
+
+  it('checks for updates from the footer and says what it found', async () => {
+    const api = new FakeApi()
+    api.states.update = updateState({ current: '2.1.0' })
+    const vm = new AppViewModel(api, memory())
+    await settle()
+    expect(vm.getSnapshot()).toMatchObject({
+      appVersion: '2.1.0', updateCheck: { label: 'Check for updates', busy: false, text: null }
+    })
+    vm.checkForUpdates()
+    expect(api.called()).toEqual(['update.check'])
+    api.push('update', updateState({ phase: 'checking' }))
+    expect(vm.getSnapshot().updateCheck).toMatchObject({ label: 'Checking...', busy: true })
+    vm.checkForUpdates()
+    expect(api.called()).toEqual(['update.check'])
+    api.push('update', updateState({ phase: 'upToDate', message: 'You have the newest version.' }))
+    expect(vm.getSnapshot().updateCheck.text).toBe('You have the newest version.')
+    api.push('update', updateState({ phase: 'error', message: 'Couldn\'t check for updates.' }))
+    expect(vm.getSnapshot().updateCheck.text).toContain('Couldn')
+    expect(vm.getSnapshot().update).toBeNull()
   })
 })
 

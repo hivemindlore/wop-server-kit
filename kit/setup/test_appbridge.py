@@ -220,3 +220,41 @@ def test_setup_messages_become_events(bridge):
     assert events == [{"event": "setup.step", "data": {"text": "Downloading World of PADMAN"}},
                       {"event": "setup.message", "data": {"text": "Unpacking..."}},
                       {"event": "setup.progress", "data": {"done": 50, "total": 100, "percent": 50}}]
+
+
+class StubOnline:
+    def __init__(self):
+        self.calls = []
+
+    def status(self, running=None):
+        self.calls.append(("status", running))
+        return {"phase": "off"}
+
+    def enable(self):
+        self.calls.append(("enable",))
+        return {"phase": "approving", "approve_url": "https://playit.gg/claim/abc"}
+
+    def advance(self):
+        self.calls.append(("advance",))
+        return {"phase": "starting"}
+
+    def disable(self):
+        self.calls.append(("disable",))
+        return {"phase": "off", "result": "Only players on your network can join now."}
+
+
+def test_online_methods(bridge, root):
+    stub = StubOnline()
+    bridge.game._online = stub
+    assert "isn't set up" in ask(bridge, "online.enable")["error"]["message"]
+    install_game(root)
+    assert ask(bridge, "online.enable")["result"]["phase"] == "approving"
+    assert ask(bridge, "online.advance")["result"]["phase"] == "starting"
+    assert ask(bridge, "online.status")["result"] == {"phase": "off"}
+    assert "network" in ask(bridge, "online.disable")["result"]["result"]
+    assert stub.calls == [("enable",), ("advance",), ("status", None), ("disable",)]
+
+
+def test_online_status_on_this_computer(bridge, root):
+    status = ask(bridge, "online.status")["result"]
+    assert status["phase"] == "off" and status["enabled"] is False and status["available"] is True

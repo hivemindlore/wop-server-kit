@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { BridgeClient } from './bridge/BridgeClient'
+import { downloadFile, fetchJson, sha256File } from './downloads'
 import { registerIpc, type Models } from './ipc'
 import { KitInstaller } from './kitInstall'
 import { AiModel } from './models/AiModel'
@@ -10,12 +11,22 @@ import { CommandModel } from './models/CommandModel'
 import { LogModel } from './models/LogModel'
 import { NetworkModel } from './models/NetworkModel'
 import { ServerModel } from './models/ServerModel'
+import { UpdateModel, type Release } from './models/UpdateModel'
 import { detectBehavior } from './platform/behaviors'
 
 let window: BrowserWindow | null = null
 
 function resourcesDir(): string {
   return app.isPackaged ? process.resourcesPath : join(__dirname, '..', '..', 'resources')
+}
+
+/** Where the app's releases are (the same repo the kit updates itself from). */
+function releaseRepo(): string {
+  try {
+    return JSON.parse(readFileSync(join(resourcesDir(), 'kit', 'kit.json'), 'utf8')).repo
+  } catch {
+    return 'hivemindlore/wop-server-kit'
+  }
 }
 
 /** Shows "the server keeps running" the first time the window closes while the server is on. */
@@ -96,6 +107,21 @@ function main(): void {
       prepareKit: () => installer.ensure(),
       openExternal: (url) => shell.openExternal(url)
     }),
+    update: new UpdateModel({
+      current: app.getVersion(),
+      repo: releaseRepo(),
+      behavior,
+      folder: join(app.getPath('userData'), 'updates'),
+      fetchRelease: (url) => fetchJson<Release>(url),
+      download: downloadFile,
+      sha256: sha256File,
+      checkKit: () => models.app.checkKitUpdate(),
+      quit: (relaunch) => {
+        if (relaunch) app.relaunch()
+        app.quit()
+      },
+      reveal: (file) => shell.showItemInFolder(file)
+    }),
     server: new ServerModel(bridge),
     network: new NetworkModel(bridge),
     commands: new CommandModel(bridge),
@@ -111,6 +137,7 @@ function main(): void {
       models.server.activate()
       void models.network.check()
       void models.ai.refresh()
+      void models.update.check(true)
     }
   })
 

@@ -8,7 +8,7 @@ import { NetworkCard } from './NetworkCard'
 export function ServerTab({ api }: { api: WopApi }) {
   const vm = useActive(useMemo(() => new ServerViewModel(api), [api]))
   const view = useViewModel(vm)
-  const { power, join } = view
+  const { power, join, online } = view
 
   return (
     <div className="grid">
@@ -97,6 +97,68 @@ export function ServerTab({ api }: { api: WopApi }) {
             )}
             {join.warning && <Notice kind="warn">{join.warning}</Notice>}
           </>
+        )}
+        {online && (
+          <div className="online">
+            <div className="setting setting-row">
+              <div>
+                <span className="setting-label">{online.label}</span>
+                <p className="muted small">{online.hint}</p>
+              </div>
+              <button
+                className={`switch switch-small ${online.on ? 'switch-on' : ''}`}
+                role="switch"
+                aria-checked={online.on}
+                aria-label={online.label}
+                disabled={online.busy}
+                onClick={() => vm.toggleOnline()}
+              >
+                <span className="switch-knob">{online.busy && <Spinner />}</span>
+              </button>
+            </div>
+            {online.note && (
+              <p className="muted">
+                {online.approveUrl && <Spinner />} {online.note}
+              </p>
+            )}
+            {online.approveUrl && (
+              <div className="power-actions">
+                <Button kind="secondary" onClick={() => vm.openUrl(online.approveUrl!)}>
+                  Open the page again
+                </Button>
+                <Button kind="quiet" onClick={() => vm.toggleOnline()}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+            {online.address && (
+              <>
+                <p>Friends somewhere else click <strong>Specify</strong> in the Multiplayer screen and fill in:</p>
+                <CopyValue
+                  label="Address"
+                  value={online.address}
+                  hint="from anywhere"
+                  copied={view.copied === online.address}
+                  onCopy={() => vm.copy(online.address!)}
+                />
+                <CopyValue
+                  label="Port"
+                  value={online.port!}
+                  copied={view.copied === online.port}
+                  onCopy={() => vm.copy(online.port!)}
+                />
+                <CopyValue
+                  label="Or type"
+                  value={online.connectLine!}
+                  hint="in the game's console (press ~)"
+                  copied={view.copied === online.connectLine}
+                  onCopy={() => vm.copy(online.connectLine!)}
+                />
+              </>
+            )}
+            {online.problem && <Notice kind="error">{online.problem}</Notice>}
+            {online.passwordTip && <Notice kind="warn">{online.passwordTip}</Notice>}
+          </div>
         )}
       </Card>
 

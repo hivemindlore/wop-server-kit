@@ -1,4 +1,4 @@
-import type { AppState, WopApi } from '@shared/api'
+import type { AppState, UpdateState, WopApi } from '@shared/api'
 import { ViewModel } from './ViewModel'
 
 export type TabId = 'server' | 'logs' | 'commands' | 'ai'
@@ -17,7 +17,11 @@ export interface AppView {
   tabs: { id: TabId; label: string; active: boolean }[]
   activeTab: TabId
   kitVersion: string
-  update: { text: string; buttonLabel: string; busy: boolean } | null
+  appVersion: string
+  /** A newer app or server kit; the app's own update comes first (it brings the newest kit along). */
+  update: { text: string; buttonLabel: string | null; busy: boolean; action: 'app' | 'kit' } | null
+  /** The footer's "Check for updates". */
+  updateCheck: { label: string; busy: boolean; text: string | null }
 }
 
 export interface Storage {
@@ -46,6 +50,7 @@ export const safeStorage: Storage = {
 /** Which screen shows (loading, first-time setup, the tabs, a problem) and which tab is open. */
 export class AppViewModel extends ViewModel<AppView> {
   private app: AppState | null = null
+  private updates: UpdateState | null = null
   private tab: TabId
   private wizardOpen = false
 
@@ -58,6 +63,7 @@ export class AppViewModel extends ViewModel<AppView> {
       if (state.phase === 'needs-setup' || state.phase === 'setting-up') this.wizardOpen = true
       this.app = state
     })
+    this.mirror('update', (state) => (this.updates = state))
   }
 
   protected present(): AppView {
@@ -66,7 +72,8 @@ export class AppViewModel extends ViewModel<AppView> {
     if (app?.phase === 'error') screen = 'error'
     else if (this.wizardOpen) screen = 'setup'
     else if (app?.phase === 'ready') screen = 'main'
-    const update = app?.update
+    const updates = this.updates
+    const busy = updates?.phase === 'checking' || updates?.phase === 'downloading' || updates?.phase === 'installing'
     return {
       screen,
       loadingText: 'Getting your server ready...',
@@ -74,15 +81,58 @@ export class AppViewModel extends ViewModel<AppView> {
       tabs: TABS.map((t) => ({ ...t, active: t.id === this.tab })),
       activeTab: this.tab,
       kitVersion: app?.hello?.kit_version ?? '',
-      update:
-        update?.available && screen === 'main'
-          ? {
-              text: `A new version of the server kit is ready (${update.version}).`,
-              buttonLabel: update.busy ? 'Updating...' : 'Update now',
-              busy: update.busy
-            }
-          : null
+      appVersion: updates?.current ?? '',
+      update: screen === 'main' ? (this.presentAppUpdate() ?? this.presentKitUpdate()) : null,
+      updateCheck: {
+        label: updates?.phase === 'checking' ? 'Checking...' : 'Check for updates',
+        busy,
+        text: updates?.phase === 'upToDate' || (updates?.phase === 'error' && !updates.version) ? updates.message : null
+      }
     }
+  }
+
+  private presentAppUpdate(): AppView['update'] {
+    const u = this.updates
+    if (!u?.version) return null
+    const base = { busy: false, action: 'app' as const, buttonLabel: null }
+    switch (u.phase) {
+      case 'available':
+        return { ...base, text: `A new version of WoP Server is ready (${u.version}).`, buttonLabel: 'Update now' }
+      case 'downloading':
+        return { ...base, busy: true, text: `Downloading WoP Server ${u.version}... ${u.percent ?? 0}%` }
+      case 'installing':
+        return { ...base, busy: true, text: 'Installing the update. WoP Server opens again by itself.' }
+      case 'manual':
+        return { ...base, text: u.message ?? '' }
+      case 'error':
+        return { ...base, text: u.message ?? '', buttonLabel: 'Try again' }
+      default:
+        return null
+    }
+  }
+
+  private presentKitUpdate(): AppView['update'] {
+    const update = this.app?.update
+    if (!update?.available) return null
+    return {
+      text: `A new version of the server kit is ready (${update.version}).`,
+      buttonLabel: update.busy ? 'Updating...' : 'Update now',
+      busy: update.busy,
+      action: 'kit'
+    }
+  }
+
+  /** The banner's button. */
+  runUpdate(): void {
+    const update = this.getSnapshot().update
+    if (!update || update.busy) return
+    if (update.action === 'app') void this.api.call('update', 'install')
+    else this.updateKit()
+  }
+
+  checkForUpdates(): void {
+    if (this.getSnapshot().updateCheck.busy) return
+    void this.api.call('update', 'check')
   }
 
   selectTab(tab: TabId): void {

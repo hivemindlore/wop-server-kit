@@ -28,6 +28,7 @@ something are marked **(admin)**: run those in PowerShell opened with *right-cli
 | Server log (everything the server window shows) | `home\wop\qconsole.log` |
 | Game log (kills, joins, scores) | `home\wop\games.log` |
 | The game itself (unless you already had WoP installed) | `game\` |
+| Playing over the internet: on/off and the address / playit.gg's own log | `home\playit\online.json` / `home\playit\playitd.log` |
 
 The server uses **UDP port 27960** (only UDP, no TCP). The game's LAN list only looks at ports 27960 to 27963.
 
@@ -267,6 +268,22 @@ The end of the log says why:
 ```powershell
 Get-Content "$wop\home\wop\qconsole.log" -Tail 40
 ```
+
+### Friends in another home can't join over the internet
+- The server has to be **on**: the internet address only works while it runs. The Server tab shows the address
+  and port under *Friends anywhere can join*; they use **Specify** in the Multiplayer screen (the server is never
+  in their LAN list).
+- Is it switched on and approved? See what the kit remembers and what playit.gg's program says:
+  ```powershell
+  Get-Content "$wop\home\playit\online.json"
+  Get-Content "$wop\home\playit\keeper.log"
+  Get-Content "$wop\home\playit\playitd.log" -Tail 30
+  Get-Process playit-* -ErrorAction SilentlyContinue | Format-Table Id, Name, StartTime
+  ```
+- Approval page closed by accident: switch it off and on again in the Server tab; a new page opens.
+- Start over with a new address: switch it off, close the app, delete `home\playit` and switch it on again
+  (you approve it once more). The old address can be removed on https://playit.gg after signing in.
+- Not on Mac yet: playit.gg has no version for it.
 
 ### Players get "wrong version" or can't connect after joining
 Everyone needs World of PADMAN **1.7.0** (`Ask-WoP "getinfo"` shows `protocol\72`). Download it from

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import hashlib
 import json
 import os
 import secrets
@@ -30,7 +29,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -40,7 +38,8 @@ sys.path.insert(0, str(KIT / "mcp"))
 sys.path.insert(0, str(KIT / "setup"))
 
 import ai_apps  # noqa: E402
-from wop import launcher  # noqa: E402
+from wop import downloads, launcher, online  # noqa: E402
+from wop.downloads import fetch, sha256  # noqa: E402
 from wop.platforms import FirewallCheck, PlatformBehavior, Shortcut, detect  # noqa: E402
 
 OS: PlatformBehavior = detect()
@@ -176,43 +175,10 @@ def _version_tuple(v: str) -> tuple:
     return tuple(int(p) if p.isdigit() else 0 for p in v.strip().split("."))
 
 
-def fetch(url: str, timeout: float = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "wop-server-kit"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
-
-
 def download(url: str, dest: Path, expected_size: int | None = None) -> None:
     """Download with progress (UI.progress); continues a half-finished download."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    have = dest.stat().st_size if dest.exists() else 0
-    if expected_size and have == expected_size:
-        return
-    headers = {"User-Agent": "wop-server-kit"}
-    if have:
-        headers["Range"] = f"bytes={have}-"
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        if have and r.status != 206:      # server ignored the range: start over
-            have = 0
-        total = expected_size or (have + int(r.headers.get("Content-Length") or 0))
-        last = -1
-        with open(dest, "ab" if have else "wb") as f:
-            while chunk := r.read(1024 * 1024):
-                f.write(chunk)
-                have += len(chunk)
-                if total and int(have * 100 / total) != last:
-                    last = int(have * 100 / total)
-                    UI.progress(have, total)
+    downloads.download(url, dest, expected_size, progress=UI.progress)
     UI.progress_done()
-
-
-def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while chunk := f.read(4 * 1024 * 1024):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def clean_name(text: str) -> str:
@@ -658,6 +624,11 @@ def cmd_banner(_args) -> None:
     say("  Players on your network: World of PADMAN -> Multiplayer -> LAN -> Join.")
     if ips:
         say(f"  Not in the list? Click SPECIFY there: address {ips[0]}, port {port}  (or /connect {ips[0]}{suffix})")
+    friends = online.Online(OS)
+    if friends.start_keeper():   # internet play is on: it follows this server
+        details = friends.join_details()
+        if details:
+            say(f"  Friends somewhere else: SPECIFY address {details['address']}, port {details['port']}")
     say('  All the steps are in the "how to join" window that opened next to this one.')
     say("")
     say("  Want another map, game mode, bots or weapons? Just ask Claude, for example:")
@@ -695,6 +666,14 @@ def cmd_joininfo(_args) -> None:
     else:
         say("  3. This computer doesn't seem to be connected to a network, so nobody else")
         say("     can join yet. Connect it to your Wi-Fi or router and start the server again.")
+    details = online.Online(OS).join_details()
+    if details:
+        say("")
+        say("  4. Friends somewhere else (another home): in the Multiplayer screen click")
+        say("     SPECIFY and fill in:")
+        say(f"         Address:  {details['address']}")
+        say(f"         Port:     {details['port']}")
+        say(f"     Or press ~ in the game and type:  {details['connect_command']}")
     if password:
         say("")
         say(f"  Join password: {password}  (players first type /password {password} in the console, ~)")
@@ -773,6 +752,7 @@ def cmd_stop(_args) -> None:
 def uninstall(inst: dict) -> None:
     """Remove the server, its settings, the firewall permission, the AI connections and the shortcuts."""
     stop_server(inst.get("port", SETTINGS["default_port"]))
+    online.Online(OS).forget()   # stops playing over the internet before the folder goes
     removal = [] if os.environ.get("WOP_SKIP_FIREWALL") else OS.firewall_removal(inst)
     if removal:
         say(f"Removing the firewall permission for the server. {OS.elevation_short}")

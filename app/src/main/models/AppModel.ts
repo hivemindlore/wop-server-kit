@@ -46,7 +46,7 @@ export class AppModel extends StateModel<AppState> {
       this.update({ phase: 'error', error: messageOf(error) })
       return
     }
-    if (this.getState().phase === 'ready') void this.checkUpdate()
+    if (this.getState().phase === 'ready') void this.checkKitUpdate()
   }
 
   retry(): Promise<void> {
@@ -87,12 +87,15 @@ export class AppModel extends StateModel<AppState> {
     this.update({ hello, phase: hello.installed ? 'ready' : 'needs-setup', error: null })
   }
 
-  private async checkUpdate(): Promise<void> {
+  /** Whether there's a newer server kit (also asked by the app's "Check for updates"). */
+  async checkKitUpdate(): Promise<boolean> {
+    if (this.getState().phase !== 'ready') return false
     try {
       const check = await this.deps.bridge.request<UpdateCheck>('kit.check_update')
       this.update({ update: { available: check.available, version: check.version, busy: false } })
+      return check.available
     } catch {
-      // offline: try again next time the app starts
+      return false   // offline: try again next time
     }
   }
 

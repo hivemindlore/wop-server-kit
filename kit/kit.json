@@ -9,5 +9,22 @@
   "wop_download_page": "https://worldofpadman.net/en/download/",
   "claude_download_page": "https://claude.ai/download",
   "patched_qagame_sha256": "5e0c38116458927a4eaf63955188b741289aa64e7d0d3bf13d0ac8eb47b41282",
-  "patched_qagame_for": "wop/wop_vm_1.7.0.pk3"
+  "patched_qagame_for": "wop/wop_vm_1.7.0.pk3",
+  "playit": {
+    "version": "1.0.10",
+    "assets": {
+      "windows-x64": {
+        "url": "https://github.com/playit-cloud/playit-agent/releases/download/v1.0.10/playit-windows-x86_64-signed.exe",
+        "sha256": "2dbdaad119844cbbc062cc9774b8b462afa5f1b4b7832a9fc5ef4676cae887cf"
+      },
+      "linux-x64": {
+        "url": "https://github.com/playit-cloud/playit-agent/releases/download/v1.0.10/playit-linux-amd64",
+        "sha256": "2df7d9f10227ab312b1ad341853db4e8a8243df5cfcdbae58713a4271711c339"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/playit-cloud/playit-agent/releases/download/v1.0.10/playit-linux-aarch64",
+        "sha256": "4c0db3e7b3a8158e249441c2f0b73f54e83429395890c7b1ca45fd7a6303d763"
+      }
+    }
+  }
 }

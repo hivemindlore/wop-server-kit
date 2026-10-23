@@ -62,6 +62,22 @@ export interface JoinInfo {
   how_to_join: string[]
   in_lan_list: boolean
   download_url: string
+  /** The internet address, while internet play is on. */
+  online: { address: string; port: number; connect_command: string } | null
+}
+
+/** Playing over the internet (friends on other networks join through playit.gg). */
+export interface OnlineStatus {
+  /** False where playit.gg has no program (Mac). */
+  available: boolean
+  enabled: boolean
+  /** approving: waiting for the host to approve it in the browser; server_off: ready, the server is off. */
+  phase: 'off' | 'approving' | 'starting' | 'server_off' | 'online' | 'problem'
+  address: string | null
+  port: number | null
+  approve_url: string | null
+  message: string
+  result?: string
 }
 
 export interface NetworkCheck {
@@ -131,11 +147,25 @@ export interface AppState {
   update: { available: boolean; version: string; busy: boolean }
 }
 
+/** Updates of the app itself (the server kit's updates are in AppState.update). */
+export interface UpdateState {
+  /** manual: downloaded and opened; the user finishes it as message says (Mac). */
+  phase: 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'manual' | 'error'
+  current: string
+  /** The newer version, while there is one. */
+  version: string
+  percent: number | null
+  message: string | null
+}
+
 export interface ServerState {
   status: ServerStatus | null
   joinInfo: JoinInfo | null
   settings: GameSettings | null
+  online: OnlineStatus | null
   busy: 'starting' | 'stopping' | 'saving' | null
+  /** Switching internet play on or off (on its own, so the server can be started meanwhile). */
+  onlineBusy: boolean
   notice: Notice | null
 }
 
@@ -167,6 +197,7 @@ export interface AiState {
 
 export interface ModelStates {
   app: AppState
+  update: UpdateState
   server: ServerState
   network: NetworkState
   commands: CommandsState
@@ -183,6 +214,10 @@ export interface ModelCommands {
     updateKit(): Promise<void>
     openUrl(url: string): Promise<void>
   }
+  update: {
+    check(): Promise<void>
+    install(): Promise<void>
+  }
   server: {
     start(): Promise<void>
     stop(): Promise<void>
@@ -191,6 +226,7 @@ export interface ModelCommands {
     setJoinPassword(password: string): Promise<void>
     setWeapons(instapad: boolean): Promise<void>
     setSpawnProtection(on: boolean): Promise<void>
+    setOnline(on: boolean): Promise<void>
     play(): Promise<void>
   }
   network: {

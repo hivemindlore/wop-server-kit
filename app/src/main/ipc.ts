@@ -6,9 +6,11 @@ import type { CommandModel as CommandsModel } from './models/CommandModel'
 import type { LogModel } from './models/LogModel'
 import type { NetworkModel } from './models/NetworkModel'
 import type { ServerModel } from './models/ServerModel'
+import type { UpdateModel } from './models/UpdateModel'
 
 export interface Models {
   app: AppModel
+  update: UpdateModel
   server: ServerModel
   network: NetworkModel
   commands: CommandsModel
@@ -20,7 +22,10 @@ export interface Models {
 // shared/api.ts promises, and nothing else can be called through IPC.
 const ALLOWED: { [M in CommandModel]: (keyof ModelCommands[M])[] } = {
   app: ['startSetup', 'retry', 'updateKit', 'openUrl'],
-  server: ['start', 'stop', 'refresh', 'setName', 'setJoinPassword', 'setWeapons', 'setSpawnProtection', 'play'],
+  update: ['check', 'install'],
+  server: [
+    'start', 'stop', 'refresh', 'setName', 'setJoinPassword', 'setWeapons', 'setSpawnProtection', 'setOnline', 'play'
+  ],
   network: ['check', 'fix'],
   commands: ['run', 'clear'],
   ai: ['refresh', 'connect', 'disconnect', 'open', 'restart'],

@@ -1,7 +1,8 @@
 # World of PADMAN Server Kit
 
-Host your own **World of PADMAN** game server for everyone on your home network, and change anything
-about it (map, game mode, bots, weapons) by just **asking Claude**. No technical knowledge needed.
+Host your own **World of PADMAN** game server for everyone on your home network (and, with one switch, for
+friends anywhere), and change anything about it (map, game mode, bots, weapons) by just **asking Claude**.
+No technical knowledge needed.
 
 [World of PADMAN](https://worldofpadman.net) is a free, colorful cartoon shooter. This kit downloads the
 game, sets up a server, and connects it to the Claude Desktop app. One file, a few clicks.
@@ -25,13 +26,24 @@ The easiest way: one app that sets everything up and lets you run your server wi
 
 | Tab | What you do there |
 |-----|-------------------|
-| **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. |
+| **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Switch on **Friends anywhere can join** to let friends in other homes join over the internet too. Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. |
 | **Logs** | Everything the server says, live, with a search box. |
 | **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
 | **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |
 
 The server runs in the background: closing the app doesn't stop it. Open the app again to see it or turn it off.
 The app and the files below install the same server, so you can switch between them.
+**Check for updates** at the bottom of the app looks for a new version of the app and installs it.
+
+### Friends anywhere (over the internet)
+
+Normally only the players on your Wi-Fi can join. Switch on **Friends anywhere can join** (Server tab) and friends
+in other homes can join too, with nothing to change on your router. It uses the free
+[playit.gg](https://playit.gg): the first time, a playit.gg page opens in your browser; click to approve it once
+(you can continue as a guest or sign in). The app then shows an address and a port for your friends. The
+setting is kept: the address works whenever your server is on, and switching it off makes it home-only again.
+Anyone with the address can join, so set a join password if you want to keep it to your friends.
+Not available on Mac yet (playit.gg has no Mac version).
 
 ## Without the app
 
@@ -124,6 +136,9 @@ the **same Wi-Fi / network** as the computer running the server.
    the *How to join* window, which opens next to the server window. Or press **~** (the key under Esc) and type
    the `/connect …` line from that window.
 
+**Friends in another home** (with *Friends anywhere can join* on): Multiplayer → **Specify** → the internet
+address and port the app shows, or press **~** and type the `/connect …` line from the app.
+
 Or ask Claude: *"How do my friends join?"*
 
 ## Changing the game: ask Claude
@@ -136,6 +151,7 @@ Open Claude Desktop and just ask, for example:
 - *"Play on the kitchen map with InstaPad."* (one hit kills)
 - *"Start the server"* · *"Rename the server to Bro Night"* · *"Set a join password"*
 - *"Keep this setup when the server starts next time."*
+- *"Let my friends from other homes join too."* (playing over the internet; Windows and Linux)
 
 Claude knows all 11 game modes, 46 maps and 29 bots, so you don't need to know any names.
 The full list is in [gamemodes.md](kit/docs/gamemodes.md).
@@ -170,7 +186,8 @@ Linux: paste this in Terminal and type `yes` when asked:
 "${XDG_DATA_HOME:-$HOME/.local/share}/WoPServer/wopkit.sh" uninstall
 ```
 
-This removes the server, its settings, the World of PADMAN desktop folder, the firewall rule and the AI connections.
+This removes the server, its settings, the World of PADMAN desktop folder, the firewall rule, the AI connections
+and the internet address at playit.gg.
 If you use the app, remove the app itself the usual way afterwards.
 A World of PADMAN game you had installed yourself stays.
 
@@ -202,11 +219,26 @@ A World of PADMAN game you had installed yourself stays.
   the app on `app/.sandbox` (port 27961, your installed game reused read-only, Claude Desktop settings and
   shortcuts kept in the sandbox) with the repo's current `kit/`; `npm run sandbox -- --fresh` starts with the full
   first-time setup instead. `npm run dev` runs it on the real install. Tests: `npm test`, `npm run typecheck`.
-  Release: tag `app-vX.Y.Z` and push; `.github/workflows/app.yml` builds the installers into a GitHub release.
+  Release: raise the version in `app/package.json`, tag `app-vX.Y.Z` and push; `.github/workflows/app.yml` builds
+  the installers into a **draft** GitHub release. Publishing that draft is what offers the update to every app:
+  **Check for updates** (and a quiet check at start) reads GitHub's latest published release, picks this computer's
+  installer by its file name, checks it against the sha256 GitHub lists for it (`digest`) and hands it to the
+  platform behavior (Windows: the installer runs quietly and opens the app again; Linux: the AppImage replaces
+  itself, the .deb goes through `pkexec dpkg -i`; Mac: the dmg opens and the host drags it over, since an unsigned
+  app can't replace itself). Code: `app/src/main/models/UpdateModel.ts`.
   The installers aren't code-signed yet (Windows SmartScreen and macOS Gatekeeper warn the first time).
+- **Playing over the internet** (`kit/mcp/wop/online.py`): playit.gg's own program (playitd, pinned with sha256 in
+  `kit.json` "playit", downloaded into `tools/` on first use) forwards a public UDP address to the game port on
+  127.0.0.1. The host approves this install once on `https://playit.gg/claim/<code>`; the kit swaps the code for the
+  install's key (`home/playit/playit.toml`) and asks playit.gg's API for the address (`/agents/rundata`,
+  `/tunnels/create`). `home/playit/online.json` keeps on/off and the address. Whenever the server starts with it on
+  (app, Claude, or the start window's banner), a small keeper (`wop/online_keeper.py`, one per install by a lock
+  file) runs the program and stops it once internet play is switched off or the server stops answering. Players
+  coming through playit arrive from 127.0.0.1, like the kit's own console commands, so the keeper only asks the
+  server every 5 s. playit.gg has no Mac program, so `MacBehavior.playit_asset` is None and the switch is hidden.
 - **Install folder:** `%LOCALAPPDATA%\WoPServer` / `~/Library/Application Support/WoPServer` /
   `~/.local/share/WoPServer`: `kit/` (replaced on update), `home/wop/` (the host's settings; never touched by
-  updates), `game/`, `tools/uv`, `python/`, `cache/`.
+  updates), `game/`, `tools/` (uv, playit), `python/`, `cache/`.
 - **Releasing an update:** change files under `kit/`, raise the number in `kit/VERSION`, push to `main`.
   Every host gets it the next time they use **Start WoP Server**.
 - **Repo name:** `hivemindlore/wop-server-kit` appears in `kit/kit.json`, both start scripts and this README.

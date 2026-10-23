@@ -51,6 +51,21 @@ export interface ServerView {
   } | null
   /** Only with InstaPad. */
   spawnProtection: { on: boolean; label: string; hint: string; disabled: boolean } | null
+  /** Friends somewhere else, over the internet; null where it isn't available (Mac). */
+  online: {
+    on: boolean
+    busy: boolean
+    label: string
+    hint: string
+    /** Waiting for the host to approve it on playit.gg. */
+    approveUrl: string | null
+    address: string | null
+    port: string | null
+    connectLine: string | null
+    note: string | null
+    problem: string | null
+    passwordTip: string | null
+  } | null
   notice: Notice | null
   copied: string | null
   saving: boolean
@@ -157,6 +172,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
       },
       network: describeNetwork(this.network),
       ...this.presentSettings(busy !== null),
+      online: this.presentOnline(),
       notice: this.server?.notice ?? null,
       copied: this.copied,
       saving: busy === 'saving',
@@ -264,6 +280,41 @@ export class ServerViewModel extends ViewModel<ServerView> {
         hint,
         disabled: busy || (!settings.running && !settings.spawn_protection_changeable)
       }
+    }
+  }
+
+  toggleOnline(): void {
+    const online = this.getSnapshot().online
+    if (!online || online.busy) return
+    void this.api.call('server', 'setOnline', !online.on)
+  }
+
+  private presentOnline(): ServerView['online'] {
+    const online = this.server?.online
+    if (!online?.available) return null
+    const on = online.enabled
+    const ready = on && online.address !== null && online.port !== null
+    const notes: Partial<Record<typeof online.phase, string>> = {
+      approving: 'Approve it on playit.gg in your browser (the page just opened). It switches on right after.',
+      starting: online.message,
+      server_off: 'This works while the server is on.'
+    }
+    return {
+      on,
+      busy: this.server?.onlineBusy ?? false,
+      label: 'Friends anywhere can join (over the internet)',
+      hint: on
+        ? 'Friends in another home join with the address and port below.'
+        : 'Uses playit.gg (free). The first time, you approve it once in your browser.',
+      approveUrl: online.phase === 'approving' ? online.approve_url : null,
+      address: ready ? online.address : null,
+      port: ready ? String(online.port) : null,
+      connectLine: ready ? `/connect ${online.address}:${online.port}` : null,
+      note: notes[online.phase] ?? null,
+      problem: online.phase === 'problem' ? online.message : null,
+      passwordTip: ready && !this.server?.joinInfo?.join_password
+        ? 'Anyone with this address can join. Set a join password below to keep it to your friends.'
+        : null
     }
   }
 

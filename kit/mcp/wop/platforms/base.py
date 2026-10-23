@@ -133,6 +133,28 @@ class PlatformBehavior(ABC):
         """(address, connection name) of the networks with a router; [] if the OS can't say."""
         return []
 
+    # ------------------------------------------------------------------ playing over the internet (playit.gg)
+
+    playit_asset: str | None = None   # which of kit.json's playit downloads runs here; None: not available here
+    exe_suffix: str = ""              # added to program file names (.exe)
+
+    def playit_socket(self, folder: Path, port: int) -> str:
+        """Where the playit program listens for its own commands: one per install, so it never meets another
+        playit on this computer."""
+        return str(folder / "playitd.sock")
+
+    @abstractmethod
+    def start_child_hidden(self, argv: list[str], cwd: Path) -> subprocess.Popen:
+        """Start a helper program without a window, as a child that ends with whoever started it."""
+
+    @abstractmethod
+    def try_lock(self, path: Path) -> object | None:
+        """Lock a file so only one process at a time does a job; None if another process holds it.
+        The lock goes away with the process, also when it crashes."""
+
+    @abstractmethod
+    def release_lock(self, handle: object) -> None: ...
+
     # ------------------------------------------------------------------ desktop
 
     def desktop_dir(self) -> Path:

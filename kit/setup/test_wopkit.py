@@ -6,6 +6,7 @@ import json
 import threading
 import zipfile
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -564,3 +565,53 @@ def test_linux_open_terminal_keeps_the_window_open(monkeypatch):
     monkeypatch.setattr(linux.shutil, "which", lambda program: False)
     with pytest.raises(OSError):
         LINUX.open_terminal(["claude"], "Claude Code")
+
+
+class FakeOnline:
+    """online.Online as wopkit sees it."""
+    calls: ClassVar[list[str]] = []
+
+    def __init__(self, behavior):
+        self.details = {"address": "happy-pad.gl.ply.gg", "port": 41234,
+                        "connect_command": "/connect happy-pad.gl.ply.gg:41234"}
+
+    def join_details(self):
+        return self.details
+
+    def start_keeper(self):
+        FakeOnline.calls.append("start_keeper")
+        return self.details is not None
+
+    def forget(self):
+        FakeOnline.calls.append("forget")
+
+
+def test_joininfo_and_banner_tell_far_away_friends(monkeypatch, capsys):
+    from wop import config
+    monkeypatch.setenv("WOP_ASSUME_YES", "1")
+    monkeypatch.setattr(wopkit.online, "Online", FakeOnline)
+    monkeypatch.setattr(wopkit, "join_addresses", lambda: [("10.0.1.71", "Wi-Fi")])
+    monkeypatch.setattr(wopkit, "load_install", lambda: {"port": 27960})
+    monkeypatch.setattr(config, "server_name", lambda: "Kim's server")
+    monkeypatch.setattr(config, "join_password", lambda: "")
+    FakeOnline.calls = []
+    wopkit.cmd_joininfo(None)
+    out = capsys.readouterr().out
+    assert "Friends somewhere else" in out and "happy-pad.gl.ply.gg" in out and "41234" in out
+    wopkit.cmd_banner(None)
+    out = capsys.readouterr().out
+    assert "address happy-pad.gl.ply.gg, port 41234" in out
+    assert FakeOnline.calls == ["start_keeper"]           # the banner runs just before the server starts
+
+
+def test_uninstall_stops_playing_over_the_internet_first(monkeypatch):
+    order = []
+    monkeypatch.setattr(wopkit.online, "Online", FakeOnline)
+    monkeypatch.setattr(wopkit, "stop_server", lambda port: order.append("stop"))
+    monkeypatch.setattr(FakeOnline, "forget", lambda self: order.append("forget"))
+    monkeypatch.setenv("WOP_SKIP_FIREWALL", "1")
+    monkeypatch.setattr(wopkit, "set_claude_entry", lambda entry: order.append("claude"))
+    monkeypatch.setattr(wopkit.ai_apps, "APPS", [])
+    monkeypatch.setattr(wopkit, "remove_shortcuts", lambda inst: order.append("shortcuts"))
+    wopkit.uninstall({"port": 27960})
+    assert order == ["stop", "forget", "claude", "shortcuts"]

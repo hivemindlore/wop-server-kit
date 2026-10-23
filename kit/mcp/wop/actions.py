@@ -24,6 +24,7 @@ from .catalog import (
     resolve_bot, resolve_gamemode, resolve_map, resolve_team,
 )
 from .config_files import set_cfg_value
+from .online import Online
 from .platforms import PlatformBehavior, detect
 from .rcon import Rcon, ServerOffline
 from .server_state import GameState, Player, clean, read_state
@@ -83,6 +84,7 @@ class Game:
         self._behavior = behavior
         self.use_log = use_log
         self.log = log or (ServerLog(config.cfg_dir() / "qconsole.log") if use_log else None)
+        self._online: Online | None = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -92,6 +94,13 @@ class Game:
         if self._behavior is None:
             self._behavior = detect()
         return self._behavior
+
+    @property
+    def online(self) -> Online:
+        """Playing over the internet (playit.gg)."""
+        if self._online is None:
+            self._online = Online(self.behavior, self.rcon)
+        return self._online
 
     def state(self) -> GameState:
         return read_state(self.rcon, self.log)
@@ -473,8 +482,14 @@ class Game:
         ]
         if password:
             steps.insert(2, f"Before joining, type /password {password} in the console (~).")
+        online = self.online.join_details()
+        if online:
+            steps.append(f"Players somewhere else (another home, over the internet): Multiplayer → SPECIFY → "
+                         f"address {online['address']}, port {online['port']}, or type {online['connect_command']} "
+                         "in the console (~). This works while the server is on.")
         return {"server_name": name, "running": running, "addresses": addresses, "port": port,
-                "join_password": password or None, "connect_commands": connect, "how_to_join": steps}
+                "join_password": password or None, "connect_commands": connect, "how_to_join": steps,
+                "online": online}
 
     def set_server_name(self, name: str) -> dict:
         name = sanitize(name, 40)
@@ -494,6 +509,7 @@ class Game:
         """With the WoP Server app the server runs without a window (the app shows its log); otherwise it
         opens in its own window, like double-clicking run-server."""
         if self.rcon.is_running(retry=True):
+            self.online.start_keeper()
             return {"result": "The server is already running.", "state": self.state().to_dict()}
         if self.use_log:
             self.log = ServerLog(config.cfg_dir() / "qconsole.log")  # the new server starts a new log
@@ -513,6 +529,8 @@ class Game:
         while time.monotonic() < deadline:
             time.sleep(1.0)
             if self.rcon.is_running():
+                if self.online.start_keeper():
+                    started += " Friends anywhere can join over the internet too."
                 return self._result(started, wait=3.0)
         raise WopError(f"The server was started, but it didn't answer within {int(wait)} s. {where}")
 

@@ -14,7 +14,8 @@ server state after every change. You don't need to know any names or commands.
 
 | Tool | What it does |
 |------|--------------|
-| `get_join_info`, `set_server_name` | How players join (address, steps, download link) / rename the server |
+| `get_join_info`, `set_server_name` | How players join (address, steps, download link, the internet address when it's on) / rename the server |
+| `set_online_play` | Friends anywhere can join over the internet (through playit.gg), or only this network. The first time it opens playit.gg for a one-time approval |
 | `get_server_status` | Map, mode, weapons, limits, free slots, every player with team / bot type / skill |
 | `list_gamemodes`, `list_maps`, `list_bots` | The game catalog (11 modes, 46 maps, 29 bots) |
 | `set_game` | Full switch: mode + map + weapons + limits + bots (defaults from gamemodes.md) |
@@ -37,6 +38,8 @@ server state after every change. You don't need to know any names or commands.
   (`wop/launcher.py`), and the app shows its log. Otherwise it opens `run-server.cmd` (Mac: `.command`, Linux: `.sh`)
   in its own window, like double-clicking it. Either way the server keeps running when Claude closes.
 - Everything that differs per OS is in `wop/platforms/` (one behavior class per OS; `detect()` picks it).
+- Internet play (`wop/online.py`): `start_server` also starts the keeper (`wop/online_keeper.py`) that runs
+  playit.gg's program while the server runs, when internet play is on.
 - Bots moved to another team are removed and re-added there, because the game puts a bot moved with
   `forceteam` back on its old team at the next map restart.
 
