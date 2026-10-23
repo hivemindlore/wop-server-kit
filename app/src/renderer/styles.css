@@ -497,6 +497,66 @@ button:focus-visible {
   left: 42px;
 }
 
+.switch-small {
+  width: 52px;
+  height: 30px;
+}
+
+.switch-small .switch-knob {
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+}
+
+.switch-small.switch-on .switch-knob {
+  left: 25px;
+}
+
+.setting-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.setting-row p {
+  margin: 0.15rem 0 0;
+}
+
+.choice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.choice-option {
+  font: inherit;
+  border: 0;
+  padding: 0.5rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.choice-option + .choice-option {
+  border-left: 1px solid var(--line);
+}
+
+.choice-selected {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.choice-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .steps {
   margin: 0 0 0.5rem;
   padding-left: 1.3rem;

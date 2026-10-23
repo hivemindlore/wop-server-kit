@@ -169,6 +169,39 @@ def test_protocol_round_trip(bridge):
     assert any(r.get("id") == 5 and "result" in r for r in replies)
 
 
+def test_settings_with_the_server_off_are_saved_for_the_next_start(bridge, root):
+    install_game(root)
+    cfg = root / "home" / "wop" / "server-friends.cfg"
+    cfg.write_text(cfg.read_text() + 'set g_instaPad "0"\nset g_spawnProtect "0"\n// >>> startup game\n'
+                   'set g_instaPad "0"\n// <<< startup game\n')
+    settings = ask(bridge, "settings.get")["result"]
+    assert settings == {"running": False, "instapad": False, "spawn_protection": False,
+                        "spawn_protection_seconds": 0, "spawn_protection_changeable": False}
+    assert "next start" in ask(bridge, "settings.set_weapons", instapad=True)["result"]["result"]
+    assert "next start" in ask(bridge, "settings.set_spawn_protection", on=True)["result"]["result"]
+    text = cfg.read_text()
+    assert text.count('set g_instaPad "1"') == 2 and 'set g_spawnProtect "3"' in text  # startup block too
+    assert ask(bridge, "settings.get")["result"]["spawn_protection_seconds"] == 3
+
+
+def test_settings_change_the_running_server(bridge, root, monkeypatch):
+    from types import SimpleNamespace
+    install_game(root)
+    bridge.game.rcon.running = True
+    calls = []
+    monkeypatch.setattr(bridge.game, "state", lambda: SimpleNamespace(instapad=True, spawn_protect=6))
+    monkeypatch.setattr(bridge.game, "set_weapons", lambda w: calls.append(("weapons", w)))
+    monkeypatch.setattr(bridge.game, "set_spawn_protection", lambda on: calls.append(("protect", on)))
+    assert ask(bridge, "settings.get")["result"]["spawn_protection_changeable"] is True
+    ask(bridge, "settings.set_weapons", instapad=False)
+    ask(bridge, "settings.set_spawn_protection", on=False)
+    assert calls == [("weapons", "regular"), ("protect", False)]
+    # a server started before the kit had its game code: saved, applies after a restart
+    monkeypatch.setattr(bridge.game, "state", lambda: SimpleNamespace(instapad=True, spawn_protect=None))
+    assert "restarts" in ask(bridge, "settings.set_spawn_protection", on=True)["result"]["result"]
+    assert calls[-1] == ("protect", False)
+
+
 def test_ai_open_and_restart(bridge, monkeypatch):
     opened = []
     monkeypatch.setattr(wopkit.OS, "find_app", lambda name: f"app:{name}" if name == "LM Studio" else None, raising=False)

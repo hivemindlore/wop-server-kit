@@ -159,6 +159,44 @@ export function ServerTab({ api }: { api: WopApi }) {
             )}
           </form>
         </div>
+        {view.weapons && (
+          <div className="setting">
+            <span className="setting-label">Weapons</span>
+            <div className="choice" role="radiogroup" aria-label="Weapons">
+              {view.weapons.options.map((option) => (
+                <button
+                  key={option.id}
+                  role="radio"
+                  aria-checked={option.selected}
+                  className={`choice-option ${option.selected ? 'choice-selected' : ''}`}
+                  disabled={view.weapons!.disabled}
+                  onClick={() => vm.chooseWeapons(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <span className="muted small">{view.weapons.note}</span>
+          </div>
+        )}
+        {view.spawnProtection && (
+          <div className="setting setting-row">
+            <div>
+              <span className="setting-label">{view.spawnProtection.label}</span>
+              <p className="muted small">{view.spawnProtection.hint}</p>
+            </div>
+            <button
+              className={`switch switch-small ${view.spawnProtection.on ? 'switch-on' : ''}`}
+              role="switch"
+              aria-checked={view.spawnProtection.on}
+              aria-label={view.spawnProtection.label}
+              disabled={view.spawnProtection.disabled}
+              onClick={() => vm.toggleSpawnProtection()}
+            >
+              <span className="switch-knob" />
+            </button>
+          </div>
+        )}
       </Card>
 
       {view.players.length > 0 && (

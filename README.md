@@ -24,7 +24,7 @@ The easiest way: one app that sets everything up and lets you run your server wi
 
 | Tab | What you do there |
 |-----|-------------------|
-| **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server or set a join password. |
+| **Server** | Turn the server on and off, see who's playing, how others join (address and port to copy), and whether other computers on your network can find it (with a **Fix it** button if not). Rename the server, set a join password, choose all weapons or InstaPad (one hit wins), and in InstaPad switch the few seconds of protection after respawning on or off. |
 | **Logs** | Everything the server says, live, with a search box. |
 | **Commands** | Give the server commands, with quick buttons for the common ones (send a message, restart the match). |
 | **AI** | Connect an AI with one click: Claude Desktop, LM Studio (free, runs on your own computer), and more. Then open it from there (or restart it, if it was already open) and just ask it to change the game. |
@@ -216,6 +216,14 @@ A World of PADMAN game you had installed yourself stays.
   `WOP_KIT_ROOT` (test folder), `WOP_KIT_URL` (a local zip of this repo), `WOP_PORT` (e.g. 27961),
   `WOP_CLAUDE_CONFIG` (a copy of the Claude config), `WOP_NO_CLAUDE_LAUNCH=1`, `WOP_DESKTOP` (test folder),
   optionally `WOP_SKIP_FIREWALL=1`, `WOP_GAME_ZIP` (an already downloaded WoP zip), `WOP_NO_SERVER=1`.
+- **The server's game code (spawn protection):** WoP 1.7.0 always gives 6 seconds of spawn protection in
+  InstaPad. `kit/server/vm/qagame.qvm` is WoP 1.7.0's server game code plus `kit/server/game/spawn-protect.patch`,
+  which adds the `g_spawnProtect` setting from WoP's newer code (seconds, 0 = off). The kit copies it to
+  `home/wop/vm/` (the server reads it from there before the game's own), only while the game is 1.7.0
+  (`ensure_game_module` in `wopkit.py`). Rebuild: `docker run --rm -v "$PWD:/kit" -w /kit ubuntu:24.04 bash
+  kit/server/game/build-qvm.sh`; the build is reproducible (without the patch it gives the official file byte for
+  byte), and CI checks the committed file against `kit.json`. Drop all this once WoP releases a version with
+  `g_spawnProtect`. It's GPL-2.0 like WoP's code; the source is WoP's `v1.7.0` tag plus the patch.
 - **License:** World of PADMAN may be copied and shared for non-commercial use (see its `COPYING.md`); the kit
   downloads it from the official release instead of re-hosting it.
 

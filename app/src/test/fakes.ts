@@ -56,6 +56,7 @@ export const appState = (patch: Partial<AppState> = {}): AppState => ({
 export const serverState = (patch: Partial<ServerState> = {}): ServerState => ({
   status: null,
   joinInfo: null,
+  settings: null,
   busy: null,
   notice: null,
   ...patch

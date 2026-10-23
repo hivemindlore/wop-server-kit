@@ -90,6 +90,14 @@ def _cfg_value(name: str) -> str | None:
     return found
 
 
+def setting(name: str) -> str | None:
+    """A setting as server-friends.cfg leaves it when the server starts (None if it isn't set there)."""
+    try:
+        return _cfg_value(name)
+    except OSError:
+        return None
+
+
 def rcon_password() -> str:
     if os.environ.get("WOP_RCON_PASSWORD"):
         return os.environ["WOP_RCON_PASSWORD"]

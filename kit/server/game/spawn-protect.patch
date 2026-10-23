@@ -1,0 +1,67 @@
+diff --git a/code/game/g_active.c b/code/game/g_active.c
+index b2ca500..f259128 100644
+--- a/code/game/g_active.c
++++ b/code/game/g_active.c
+@@ -744,7 +744,7 @@ static void ClientThink_real(gentity_t *ent) {
+ 
+ 	// stop instagib spawn protection
+ 	if (g_modInstagib.integer) {
+-		if ((ent->flags & FL_GODMODE) && ((level.time - ent->client->spawnProtect) > INSTAGIB_PROTECT_TIME)) {
++		if ((ent->flags & FL_GODMODE) && ((level.time - ent->client->spawnProtect) > g_instaPadSpawnProtect.integer * 1000)) {
+ 			ent->flags &= ~FL_GODMODE;
+ 			G_AddEvent(ent, EV_SPAWNPROTECT, qfalse);
+ 			Com_DPrintf("Stop spawn protection for %s\n", client->pers.netname);
+diff --git a/code/game/g_client.c b/code/game/g_client.c
+index b6d11c0..2109848 100644
+--- a/code/game/g_client.c
++++ b/code/game/g_client.c
+@@ -1366,7 +1366,7 @@ void ClientSpawn(gentity_t *ent) {
+ 	BG_PlayerStateToEntityState(&client->ps, &ent->s, qtrue);
+ 
+ 	// start instagib spawn protection
+-	if (g_modInstagib.integer) {
++	if (g_modInstagib.integer && g_instaPadSpawnProtect.integer > 0) {
+ 		ent->flags ^= FL_GODMODE;
+ 		client->spawnProtect = level.time;
+ 		G_AddEvent(ent, EV_SPAWNPROTECT, qtrue);
+diff --git a/code/game/g_local.h b/code/game/g_local.h
+index 6fc34f3..f29c8a1 100644
+--- a/code/game/g_local.h
++++ b/code/game/g_local.h
+@@ -42,7 +42,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #define CARNAGE_REWARD_TIME 3000
+ #define REWARD_SPRITE_TIME 4000
+ #define SPRAYREWARD_SPRITE_TIME 6000
+-#define INSTAGIB_PROTECT_TIME 6000
+ 
+ #define INTERMISSION_DELAY_TIME 1000
+ #define SP_INTERMISSION_DELAY_TIME 5000
+@@ -972,6 +971,7 @@ extern vmCvar_t g_ft_debug;
+ // Modifiers
+ extern vmCvar_t g_modInstagib;
+ extern vmCvar_t g_modInstagib_WeaponJump;
++extern vmCvar_t g_instaPadSpawnProtect;
+ 
+ extern vmCvar_t g_logDamage;
+ 
+diff --git a/code/game/g_main.c b/code/game/g_main.c
+index 704f9b7..d6b6f3c 100644
+--- a/code/game/g_main.c
++++ b/code/game/g_main.c
+@@ -103,6 +103,7 @@ vmCvar_t g_ft_debug;
+ // Modifiers
+ vmCvar_t g_modInstagib;
+ vmCvar_t g_modInstagib_WeaponJump;
++vmCvar_t g_instaPadSpawnProtect;
+ 
+ vmCvar_t g_logDamage;
+ 
+@@ -195,6 +196,8 @@ static cvarTable_t gameCvarTable[] = {
+ 	{&g_modInstagib, "g_instaPad", "0", CVAR_SERVERINFO | CVAR_LATCH | CVAR_ARCHIVE, 0, qtrue},
+ 	// TODO: Either rename again or allow instapad-weaponjump in non-instapad gameplay :)
+ 	{&g_modInstagib_WeaponJump, "g_weaponJump", "1", CVAR_ARCHIVE, 0, qtrue},
++	// seconds of spawn protection in InstaPad, 0 = none (from WoP after 1.7.0; 1.7.0 always used 6)
++	{&g_instaPadSpawnProtect, "g_spawnProtect", "6", CVAR_SERVERINFO | CVAR_ARCHIVE, 0, qtrue},
+ 
+ 	{&g_ft_numRounds, "g_ft_numRounds", "3", CVAR_ARCHIVE | CVAR_SERVERINFO, 0, qfalse},
+ 	{&g_ft_playAllRounds, "g_ft_playAllRounds", "0", CVAR_ARCHIVE | CVAR_SERVERINFO, 0, qfalse},

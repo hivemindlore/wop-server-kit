@@ -30,6 +30,7 @@ from .server_state import GameState, Player, clean, read_state
 from .serverlog import ServerLog
 
 MAP_TIMEOUT = 30.0
+SPAWN_PROTECT_SECONDS = 3   # WoP's new default; 1.7.0 used 6
 BATCH_FILE = "mcp-batch.cfg"
 _ERROR_MARKERS = ("error", "can't find", "couldn't", "unknown", "not defined", "usage:", "invalid")
 
@@ -407,11 +408,12 @@ class Game:
         text = sanitize(text, 150)
         if not text:
             raise WopError("The message is empty.")
+        # WoP's own ssay/stell: the engine's say/tell send a chat line WoP's game no longer understands
         if player is None:
-            self.rcon.command(f"say {text}")
+            self.rcon.command(f"ssay {text}")
             return {"result": f"Said to everyone: {text}"}
         p = self.find_player(self.state(), player)
-        self.rcon.command(f"tell {p.num} {text}")
+        self.rcon.command(f"stell {p.num} {text}")
         return {"result": f"Told {p.clean_name}: {text}"}
 
     def set_join_password(self, password: str) -> dict:
@@ -514,6 +516,18 @@ class Game:
                 return self._result(started, wait=3.0)
         raise WopError(f"The server was started, but it didn't answer within {int(wait)} s. {where}")
 
+    def set_spawn_protection(self, on: bool) -> dict:
+        """InstaPad's few seconds of not getting hurt after respawning. Applies from the next respawn."""
+        state = self.state()
+        if state.spawn_protect is None:
+            raise WopError("The server that's running can't change spawn protection yet (plain World of PADMAN "
+                           "1.7.0 always uses 6 seconds). Restart the server once; then it can.")
+        seconds = SPAWN_PROTECT_SECONDS if on else 0
+        self.rcon.command(f"set g_spawnProtect {seconds}")
+        note = "" if state.instapad else " It only matters with InstaPad weapons."
+        return self._result(f"Spawn protection {'on' if on else 'off'} ({seconds} seconds) from the next "
+                            f"respawn.{note}", wait=0.2)
+
     def stop_server(self) -> dict:
         if not self.rcon.is_running():
             return {"result": "The server isn't running."}
@@ -527,6 +541,9 @@ class Game:
                 return {"result": "Server stopped."}
         raise WopError("Sent quit, but the server is still answering.")
 
+    # say/tell as typed in Quake 3 -> WoP's ssay/stell (see send_message)
+    _WOP_CHAT = re.compile(r"^(say|tell)(?=\s|$)", re.IGNORECASE)
+
     _BLOCKED = re.compile(r"^\s*(quit|killserver|rconpassword|(seta?|sets|setu)\s+rconpassword|"
                           r"exec\s+\"?server-friends)", re.IGNORECASE)
 
@@ -537,6 +554,7 @@ class Game:
         if self._BLOCKED.match(command):
             raise WopError("That command isn't allowed here. Use stop_server to stop the server; "
                            "the rcon password can only be changed in server-friends.cfg.")
+        command = self._WOP_CHAT.sub(lambda m: "s" + m.group(1).lower(), command)
         timeout = MAP_TIMEOUT if command.lower().startswith(("map ", "devmap", "map_restart", "vstr")) else 5.0
         out = self.rcon.command(command, timeout=timeout)
         return {"command": command, "output": clean(out).strip() or "(no output)"}

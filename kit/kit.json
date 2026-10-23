@@ -7,5 +7,7 @@
   "default_port": 27960,
   "mcp_name": "wop-server",
   "wop_download_page": "https://worldofpadman.net/en/download/",
-  "claude_download_page": "https://claude.ai/download"
+  "claude_download_page": "https://claude.ai/download",
+  "patched_qagame_sha256": "5e0c38116458927a4eaf63955188b741289aa64e7d0d3bf13d0ac8eb47b41282",
+  "patched_qagame_for": "wop/wop_vm_1.7.0.pk3"
 }

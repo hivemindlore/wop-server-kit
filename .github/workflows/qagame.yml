@@ -1,0 +1,22 @@
+name: server game code
+
+# kit/server/vm/qagame.qvm must be exactly what kit/server/game/build-qvm.sh makes from WoP 1.7.0 + the patch,
+# and what kit/kit.json pins.
+on:
+  push:
+    paths: ['kit/server/game/**', 'kit/server/vm/**', 'kit/kit.json', '.github/workflows/qagame.yml']
+  pull_request:
+    paths: ['kit/server/game/**', 'kit/server/vm/**', 'kit/kit.json', '.github/workflows/qagame.yml']
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build qagame.qvm
+        run: docker run --rm -v "$PWD:/kit" -w /kit ubuntu:24.04 bash kit/server/game/build-qvm.sh
+      - name: Same as the committed file and kit.json
+        run: |
+          git diff --exit-code --stat kit/server/vm/qagame.qvm
+          want=$(python3 -c "import json; print(json.load(open('kit/kit.json'))['patched_qagame_sha256'])")
+          echo "$want  kit/server/vm/qagame.qvm" | sha256sum --check

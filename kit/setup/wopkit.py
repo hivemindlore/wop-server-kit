@@ -349,6 +349,24 @@ def ensure_game(inst: dict) -> Path:
 
 # --------------------------------------------------------------------------- server files
 
+def ensure_game_module(game: Path) -> None:
+    """The server's game code with the g_spawnProtect setting (kit/server/game: WoP 1.7.0 plus one patch).
+
+    The server reads vm/qagame.qvm from its home folder before the game's own, so only the server uses it; the
+    game folder and the players' games stay as they are. It's only for WoP 1.7.0: with any other version it's
+    removed again, so a newer official game never runs with this older game code.
+    """
+    target = CFG / "vm" / "qagame.qvm"
+    patched = KIT / "server" / "vm" / "qagame.qvm"
+    want = SETTINGS["patched_qagame_sha256"]
+    if (game / SETTINGS["patched_qagame_for"]).exists() and patched.exists() and sha256(patched) == want:
+        if not target.exists() or sha256(target) != want:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(patched, target)
+    elif target.exists() and sha256(target) == want:
+        target.unlink()
+
+
 def ensure_server_files(inst: dict, game: Path) -> None:
     CFG.mkdir(parents=True, exist_ok=True)
     cfg = CFG / "server-friends.cfg"
@@ -360,6 +378,7 @@ def ensure_server_files(inst: dict, game: Path) -> None:
     for name in ("teams.cfg", "mode.cfg"):
         if not (CFG / name).exists():
             shutil.copyfile(KIT / "server" / name, CFG / name)
+    ensure_game_module(game)
 
     # The "how to join" text gets its own window: in the server window the server's log scrolls it away
     scripts = OS.run_scripts(ROOT, inst["port"], UV_ENV, uv(), WOPKIT, game,

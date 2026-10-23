@@ -44,6 +44,13 @@ export interface ServerView {
     warning: string | null
   } | null
   network: NetworkView
+  weapons: {
+    options: { id: 'regular' | 'instapad'; label: string; selected: boolean }[]
+    note: string
+    disabled: boolean
+  } | null
+  /** Only with InstaPad. */
+  spawnProtection: { on: boolean; label: string; hint: string; disabled: boolean } | null
   notice: Notice | null
   copied: string | null
   saving: boolean
@@ -149,6 +156,7 @@ export class ServerViewModel extends ViewModel<ServerView> {
             : null
       },
       network: describeNetwork(this.network),
+      ...this.presentSettings(busy !== null),
       notice: this.server?.notice ?? null,
       copied: this.copied,
       saving: busy === 'saving',
@@ -213,6 +221,50 @@ export class ServerViewModel extends ViewModel<ServerView> {
     this.passwordDraft = ''
     this.changed()
     await this.api.call('server', 'setJoinPassword', password)
+  }
+
+  chooseWeapons(id: 'regular' | 'instapad'): void {
+    const weapons = this.getSnapshot().weapons
+    if (!weapons || weapons.disabled || weapons.options.find((o) => o.selected)?.id === id) return
+    void this.api.call('server', 'setWeapons', id === 'instapad')
+  }
+
+  toggleSpawnProtection(): void {
+    const protection = this.getSnapshot().spawnProtection
+    if (!protection || protection.disabled) return
+    void this.api.call('server', 'setSpawnProtection', !protection.on)
+  }
+
+  private presentSettings(busy: boolean): Pick<ServerView, 'weapons' | 'spawnProtection'> {
+    const settings = this.server?.settings
+    if (!settings) return { weapons: null, spawnProtection: null }
+    const weapons: ServerView['weapons'] = {
+      options: [
+        { id: 'regular', label: 'All weapons', selected: !settings.instapad },
+        { id: 'instapad', label: 'InstaPad (one hit wins)', selected: settings.instapad }
+      ],
+      note: settings.running ? 'Switching restarts the current match.' : 'Used when the server starts.',
+      disabled: busy
+    }
+    if (!settings.instapad) return { weapons, spawnProtection: null }
+    const seconds = settings.spawn_protection_seconds
+    let hint = settings.spawn_protection
+      ? `Players can't be hurt for ${seconds} seconds after they respawn.`
+      : 'Players can be hit right after they respawn.'
+    if (!settings.spawn_protection_changeable) {
+      hint = settings.running
+        ? 'Changes apply after the server restarts once.'
+        : 'Not available with this version of World of PADMAN.'
+    }
+    return {
+      weapons,
+      spawnProtection: {
+        on: settings.spawn_protection,
+        label: 'Protection after respawning',
+        hint,
+        disabled: busy || (!settings.running && !settings.spawn_protection_changeable)
+      }
+    }
   }
 
   async removePassword(): Promise<void> {

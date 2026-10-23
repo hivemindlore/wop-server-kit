@@ -19,6 +19,7 @@ server state after every change. You don't need to know any names or commands.
 | `list_gamemodes`, `list_maps`, `list_bots` | The game catalog (11 modes, 46 maps, 29 bots) |
 | `set_game` | Full switch: mode + map + weapons + limits + bots (defaults from gamemodes.md) |
 | `change_map`, `set_weapons`, `set_limits`, `restart_match` | Smaller changes |
+| `set_spawn_protection` | InstaPad: a few seconds of not getting hurt after respawning, on or off (needs the kit's game code, `kit/server/game`) |
 | `set_teams`, `add_bots`, `remove_bots`, `move_player` | Bot lineup and teams |
 | `kick_player`, `send_message`, `set_join_password` | Player admin |
 | `start_server`, `stop_server` | Starts the server (in the background when the WoP Server app is used, otherwise in its own window) / stops it |

@@ -49,6 +49,7 @@ Game rules worth knowing:
 - Capture The Lolly and One Lolly Capture only work on ...CTL maps, Big Balloon only on ...BB maps,
   all other modes on the regular maps and the ...LPS maps.
 - Weapons are either "regular" (all weapons) or "instapad" (one weapon, one hit kills).
+  In InstaPad, players can't be hurt for a few seconds after respawning; set_spawn_protection turns that on or off.
 - Bot skill is 1 (easy) to 5 (hard); 3 is the default. The same bot can be added more than once
   (copies are named FatPad2, FatPad3, ... automatically).
 - The server has 16 slots for humans and bots together. Humans choose their own team in the game
@@ -144,6 +145,13 @@ def change_map(map: Annotated[str, Field(description="Map name, e.g. 'wop_padkit
 def set_weapons(weapons: Literal["regular", "instapad"]) -> dict:
     """Regular weapons or InstaPad (one weapon, one hit kills). Reloads the current map so it applies."""
     return _call(game.set_weapons, weapons)
+
+
+@mcp.tool()
+def set_spawn_protection(on: Annotated[bool, Field(description="true: 3 seconds of protection, false: none")]) -> dict:
+    """InstaPad only: whether players can't be hurt for a few seconds after respawning. Applies from the next
+    respawn and lasts until the server restarts (save_as_startup doesn't keep it; the WoP Server app can)."""
+    return _call(game.set_spawn_protection, on)
 
 
 @mcp.tool()

@@ -34,10 +34,22 @@ export interface ServerStatus {
   map?: string
   gamemode?: { id: number; name: string; team_mode: boolean }
   weapons?: 'regular' | 'instapad'
+  /** Only with InstaPad. */
+  spawn_protection_seconds?: number
   pointlimit?: number
   timelimit_minutes?: number
   slots?: { max: number; used: number; free: number }
   players?: Player[]
+}
+
+/** Weapons and InstaPad spawn protection: what the running server uses, or else what it starts with. */
+export interface GameSettings {
+  running: boolean
+  instapad: boolean
+  spawn_protection: boolean
+  spawn_protection_seconds: number
+  /** False on a server without the kit's game code (plain WoP 1.7.0 always protects 6 seconds). */
+  spawn_protection_changeable: boolean
 }
 
 export interface JoinInfo {
@@ -122,6 +134,7 @@ export interface AppState {
 export interface ServerState {
   status: ServerStatus | null
   joinInfo: JoinInfo | null
+  settings: GameSettings | null
   busy: 'starting' | 'stopping' | 'saving' | null
   notice: Notice | null
 }
@@ -176,6 +189,8 @@ export interface ModelCommands {
     refresh(): Promise<void>
     setName(name: string): Promise<void>
     setJoinPassword(password: string): Promise<void>
+    setWeapons(instapad: boolean): Promise<void>
+    setSpawnProtection(on: boolean): Promise<void>
     play(): Promise<void>
   }
   network: {

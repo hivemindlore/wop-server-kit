@@ -49,6 +49,7 @@ class GameState:
     maxclients: int
     lps_lives: int | None
     players: list[Player] = field(default_factory=list)
+    spawn_protect: int | None = None   # InstaPad spawn protection in seconds; None: plain WoP 1.7.0 (always 6)
 
     @property
     def mode(self):
@@ -84,6 +85,8 @@ class GameState:
         }
         if self.gametype == 4 and self.lps_lives is not None:
             d["lps_lives"] = self.lps_lives
+        if self.instapad:
+            d["spawn_protection_seconds"] = 6 if self.spawn_protect is None else self.spawn_protect
         if self.team_mode:
             for team in ("red", "blue", "spectator"):
                 d[team] = [p.clean_name + ("" if p.bot else " (human)") for p in self.on_team(team)]
@@ -164,4 +167,5 @@ def read_state(rcon, log=None, bot_details: bool = True) -> GameState:
         maxclients=_int(info.get("sv_maxclients"), 16),
         lps_lives=_int(lps) if lps is not None else None,
         players=players,
+        spawn_protect=_int(info["g_spawnProtect"]) if "g_spawnProtect" in info else None,
     )

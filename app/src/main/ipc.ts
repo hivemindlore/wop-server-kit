@@ -20,7 +20,7 @@ export interface Models {
 // shared/api.ts promises, and nothing else can be called through IPC.
 const ALLOWED: { [M in CommandModel]: (keyof ModelCommands[M])[] } = {
   app: ['startSetup', 'retry', 'updateKit', 'openUrl'],
-  server: ['start', 'stop', 'refresh', 'setName', 'setJoinPassword', 'play'],
+  server: ['start', 'stop', 'refresh', 'setName', 'setJoinPassword', 'setWeapons', 'setSpawnProtection', 'play'],
   network: ['check', 'fix'],
   commands: ['run', 'clear'],
   ai: ['refresh', 'connect', 'disconnect', 'open', 'restart'],

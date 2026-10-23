@@ -470,6 +470,40 @@ def test_detect_picks_this_os():
         for_name("amiga")
 
 
+# --------------------------------------------------------------------------- the kit's game code (spawn protection)
+
+def test_patched_game_module_matches_kit_json():
+    """The committed qagame.qvm is the one kit.json pins (rebuild with kit/server/game/build-qvm.sh)."""
+    module = wopkit.KIT / "server" / "vm" / "qagame.qvm"
+    assert wopkit.sha256(module) == wopkit.SETTINGS["patched_qagame_sha256"]
+
+
+def test_game_module_only_for_wop_1_7_0(tmp_path, monkeypatch):
+    monkeypatch.setattr(wopkit, "CFG", tmp_path / "home" / "wop")
+    target = tmp_path / "home" / "wop" / "vm" / "qagame.qvm"
+    game = tmp_path / "game"
+    (game / "wop").mkdir(parents=True)
+
+    wopkit.ensure_game_module(game)                      # not WoP 1.7.0: nothing
+    assert not target.exists()
+
+    (game / "wop" / "wop_vm_1.7.0.pk3").write_text("")
+    wopkit.ensure_game_module(game)
+    assert wopkit.sha256(target) == wopkit.SETTINGS["patched_qagame_sha256"]
+
+    target.write_bytes(b"old")                           # an older kit's copy is replaced
+    wopkit.ensure_game_module(game)
+    assert wopkit.sha256(target) == wopkit.SETTINGS["patched_qagame_sha256"]
+
+    (game / "wop" / "wop_vm_1.7.0.pk3").unlink()        # a newer WoP: our 1.7.0 code goes
+    wopkit.ensure_game_module(game)
+    assert not target.exists()
+
+    target.write_bytes(b"someone else's")               # never removes a file we didn't put there
+    wopkit.ensure_game_module(game)
+    assert target.read_bytes() == b"someone else's"
+
+
 # --------------------------------------------------------------------------- opening other apps (AI tab)
 
 def test_windows_finds_apps_in_the_start_menu(monkeypatch):

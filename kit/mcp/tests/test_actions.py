@@ -102,4 +102,44 @@ def test_console_command_blocklist(game, rcon):
 
 def test_sanitize_message(game, rcon):
     game.send_message('hi"; quit')
-    assert rcon.sent == ["say hi quit"]
+    assert rcon.sent == ["ssay hi quit"]
+
+
+def test_messages_use_wops_own_commands(game, rcon):
+    """The engine's say/tell send a chat line WoP 1.7.0 doesn't show; its game code has ssay/stell."""
+    game.send_message("Dinner is ready!")
+    game.send_message("psst", player="FATTY")
+    assert rcon.sent == ["ssay Dinner is ready!", "stell 8 psst"]
+
+
+@pytest.mark.parametrize("typed,sent", [
+    ("say hello all", "ssay hello all"),
+    ("SAY hi", "ssay hi"),
+    ("tell 3 hi", "stell 3 hi"),
+    ("sayto x", "sayto x"),          # not the word say
+    ("ssay hi", "ssay hi"),
+    ("g_gravity 400", "g_gravity 400"),
+])
+def test_console_say_becomes_ssay(game, rcon, typed, sent):
+    game.run_console_command(typed)
+    assert rcon.sent == [sent]
+
+
+def test_spawn_protection_needs_the_kits_game_code(game, rcon):
+    with pytest.raises(WopError, match="always uses 6 seconds"):
+        game.set_spawn_protection(False)
+    assert rcon.sent == []
+
+
+def test_spawn_protection_on_and_off(rcon, monkeypatch):
+    from conftest import SERVERINFO, FakeRcon
+    from wop import actions
+    monkeypatch.setattr(actions.time, "sleep", lambda s: None)
+    rcon = FakeRcon(serverinfo=SERVERINFO.replace("g_instaPad           0", "g_instaPad           1")
+                    + "g_spawnProtect       6\n")
+    game = actions.Game(rcon, use_log=False)
+    assert game.state().to_dict()["spawn_protection_seconds"] == 6
+    result = game.set_spawn_protection(False)
+    game.set_spawn_protection(True)
+    assert rcon.sent == ["set g_spawnProtect 0", "set g_spawnProtect 3"]
+    assert "off" in result["result"] and "It only matters" not in result["result"]

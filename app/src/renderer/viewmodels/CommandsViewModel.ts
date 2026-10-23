@@ -16,7 +16,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
     label: 'Send a message',
     description: 'Shows a message to everyone in the game.',
     input: { placeholder: 'Your message' },
-    command: 'say {text}'
+    command: 'ssay {text}'  // WoP's own; the engine's say doesn't show in WoP
   },
   { id: 'restart', label: 'Restart the match', description: 'Scores back to 0, same map and bots.', command: 'map_restart 0' },
   { id: 'status', label: 'Who\'s playing?', description: 'Everyone on the server with their number and ping.', command: 'status' },

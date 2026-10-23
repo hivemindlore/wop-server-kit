@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import wopkit  # noqa: E402  (sets up the paths and the OS behavior)
 import ai_apps  # noqa: E402
 from wop import config  # noqa: E402
-from wop.actions import Game  # noqa: E402
+from wop.actions import SPAWN_PROTECT_SECONDS, Game  # noqa: E402
 from wop.catalog import WopError  # noqa: E402
 from wop.config_files import set_cfg_value  # noqa: E402
 from wop.serverlog import LogTail, color_segments  # noqa: E402
@@ -61,6 +61,9 @@ class Bridge:
             "server.join_info": self.join_info,
             "server.set_name": self.set_name,
             "server.set_join_password": self.set_join_password,
+            "settings.get": self.settings_get,
+            "settings.set_weapons": self.settings_set_weapons,
+            "settings.set_spawn_protection": self.settings_set_spawn_protection,
             "network.check": self.network_check,
             "network.fix": self.network_fix,
             "log.history": self.log_history,
@@ -212,6 +215,42 @@ class Bridge:
         inst["server_name"] = config_name()
         wopkit.save_install(inst)
         return result
+
+    # ------------------------------------------------------------------ game settings
+    # Changed on the running server right away, and saved in server-friends.cfg so the server starts with them.
+
+    def settings_get(self) -> dict:
+        running = self.game.rcon.is_running()
+        if running:
+            state = self.game.state()
+            instapad, seconds = state.instapad, state.spawn_protect
+            changeable = seconds is not None
+        else:
+            instapad = (config.setting("g_instaPad") or "0").strip() == "1"
+            seconds = int(config.setting("g_spawnProtect") or "6")
+            changeable = (wopkit.CFG / "vm" / "qagame.qvm").exists()
+        seconds = 6 if seconds is None else seconds
+        return {"running": running, "instapad": instapad, "spawn_protection": seconds > 0,
+                "spawn_protection_seconds": seconds, "spawn_protection_changeable": changeable}
+
+    def settings_set_weapons(self, instapad: bool) -> dict:
+        set_cfg_value(config.server_cfg(), "g_instaPad", "1" if instapad else "0")
+        weapons = "InstaPad" if instapad else "all weapons"
+        if self.game.rcon.is_running():
+            self.game.set_weapons("instapad" if instapad else "regular")
+            return {"result": f"Now playing with {weapons}; the match restarted so it applies."}
+        return {"result": f"Weapons: {weapons}, saved for the next start."}
+
+    def settings_set_spawn_protection(self, on: bool) -> dict:
+        seconds = SPAWN_PROTECT_SECONDS if on else 0
+        set_cfg_value(config.server_cfg(), "g_spawnProtect", str(seconds))
+        what = f"Spawn protection {'on' if on else 'off'}"
+        if self.game.rcon.is_running():
+            if self.game.state().spawn_protect is None:
+                return {"result": f"{what}: saved. It applies after the server restarts once."}
+            self.game.set_spawn_protection(on)
+            return {"result": f"{what}, from the next respawn."}
+        return {"result": f"{what}: saved for the next start."}
 
     def set_join_password(self, password: str) -> dict:
         """Kept after a restart too (written to server-friends.cfg), unlike the Claude tool."""

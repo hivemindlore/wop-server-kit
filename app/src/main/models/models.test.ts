@@ -169,6 +169,46 @@ describe('ServerModel', () => {
   })
 })
 
+describe('ServerModel settings', () => {
+  it('saves weapons and protection, then reads everything again', async () => {
+    let settings = { running: true, instapad: false, spawn_protection: true, spawn_protection_seconds: 3 }
+    const bridge = new FakeBridge({
+      'settings.get': () => settings,
+      'settings.set_weapons': ({ instapad }) => {
+        settings = { ...settings, instapad: Boolean(instapad) }
+        return { result: 'Now playing with InstaPad; the match restarted so it applies.' }
+      },
+      'settings.set_spawn_protection': () => ({ result: 'Spawn protection off, from the next respawn.' }),
+      'server.status': () => ({ running: true, weapons: settings.instapad ? 'instapad' : 'regular' }),
+      'server.join_info': () => ({})
+    })
+    const model = new ServerModel(bridge)
+    await model.setWeapons(true)
+    expect(bridge.calls.find((c) => c.method === 'settings.set_weapons')?.params).toEqual({ instapad: true })
+    expect(model.getState().settings?.instapad).toBe(true)
+    expect(model.getState().notice?.text).toContain('InstaPad')
+    await model.setSpawnProtection(false)
+    expect(bridge.calls.find((c) => c.method === 'settings.set_spawn_protection')?.params).toEqual({ on: false })
+  })
+
+  it('reads the settings again when someone else changed the weapons', async () => {
+    let weapons = 'regular'
+    const bridge = new FakeBridge({
+      'settings.get': () => ({ running: true, instapad: weapons === 'instapad' }),
+      'server.status': () => ({ running: true, weapons }),
+      'server.join_info': () => ({})
+    })
+    const model = new ServerModel(bridge)
+    model.activate()
+    await settle()
+    weapons = 'instapad'   // e.g. Claude switched to InstaPad
+    await model.refresh()
+    await settle()
+    model.deactivate()
+    expect(model.getState().settings?.instapad).toBe(true)
+  })
+})
+
 describe('NetworkModel', () => {
   it('checks and fixes', async () => {
     const bridge = new FakeBridge({
