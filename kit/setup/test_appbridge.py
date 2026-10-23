@@ -242,6 +242,10 @@ class StubOnline:
         self.calls.append(("disable",))
         return {"phase": "off", "result": "Only players on your network can join now."}
 
+    def manage(self):
+        self.calls.append(("manage",))
+        return {"result": "playit.gg opened in your browser."}
+
 
 def test_online_methods(bridge, root):
     stub = StubOnline()
@@ -252,7 +256,8 @@ def test_online_methods(bridge, root):
     assert ask(bridge, "online.advance")["result"]["phase"] == "starting"
     assert ask(bridge, "online.status")["result"] == {"phase": "off"}
     assert "network" in ask(bridge, "online.disable")["result"]["result"]
-    assert stub.calls == [("enable",), ("advance",), ("status", None), ("disable",)]
+    assert "opened" in ask(bridge, "online.manage")["result"]["result"]
+    assert stub.calls == [("enable",), ("advance",), ("status", None), ("disable",), ("manage",)]
 
 
 def test_online_status_on_this_computer(bridge, root):

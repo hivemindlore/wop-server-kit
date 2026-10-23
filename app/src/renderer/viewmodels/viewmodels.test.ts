@@ -52,6 +52,7 @@ const online = (patch: Partial<OnlineStatus> = {}): OnlineStatus => ({
   port: 41234,
   approve_url: null,
   message: 'Friends anywhere can join: address happy-pad.gl.ply.gg, port 41234.',
+  approved: true,
   ...patch
 })
 
@@ -123,6 +124,20 @@ describe('ServerViewModel: internet play', () => {
     expect(JSON.stringify(view)).not.toMatch(/tunnel|agent/i)
     api.push('server', serverState({ status: running, joinInfo: join, online: online() }))
     expect(vm.getSnapshot().online?.passwordTip).toBeNull()
+  })
+
+  it('offers playit.gg itself once it is approved', async () => {
+    const api = new FakeApi()
+    api.states.server = serverState({
+      joinInfo: join, online: online({ phase: 'approving', approved: false, address: null, port: null })
+    })
+    const vm = new ServerViewModel(api)
+    await settle()
+    expect(vm.getSnapshot().online?.manageLabel).toBeNull()
+    api.push('server', serverState({ joinInfo: join, online: online({ enabled: false, phase: 'off' }) }))
+    expect(vm.getSnapshot().online?.manageLabel).toBe('Manage on playit.gg')   // still there when switched off
+    vm.manageOnline()
+    expect(api.called()).toEqual(['server.manageOnline'])
   })
 
   it('says when it works, and what went wrong', async () => {

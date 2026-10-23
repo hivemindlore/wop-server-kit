@@ -7,6 +7,7 @@ export const POLL_MS = 5000
 // While internet play waits for the approval in the browser or for its address
 export const ONLINE_POLL_MS = 3000
 export const ONLINE_WAIT_MS = 10 * 60 * 1000
+export const ONLINE_REFRESH_POLLS = 6   // every 6th status poll (30 s), see refresh()
 
 const WAITING: OnlineStatus['phase'][] = ['approving', 'starting']
 
@@ -21,6 +22,7 @@ export class ServerModel extends StateModel<ServerState> {
   private onlineTimer: ReturnType<typeof setInterval> | null = null
   private onlineSince = 0
   private advancing = false
+  private polls = 0
 
   constructor(private readonly bridge: Bridge) {
     super({ status: null, joinInfo: null, settings: null, online: null, busy: null, onlineBusy: false, notice: null })
@@ -42,6 +44,8 @@ export class ServerModel extends StateModel<ServerState> {
   }
 
   refresh(): Promise<void> {
+    // Internet play can be switched by Claude too; its status costs the server nothing, so look now and then
+    if (++this.polls % ONLINE_REFRESH_POLLS === 0 && !this.onlineTimer) void this.loadOnline()
     this.refreshing ??= this.readStatus().finally(() => (this.refreshing = null))
     return this.refreshing
   }
@@ -91,6 +95,14 @@ export class ServerModel extends StateModel<ServerState> {
     }
     void this.loadJoinInfo()
     this.update({ onlineBusy: false })
+  }
+
+  async manageOnline(): Promise<void> {
+    try {
+      await this.bridge.request('online.manage')
+    } catch (error) {
+      this.update({ notice: { kind: 'error', text: messageOf(error) } })
+    }
   }
 
   async play(): Promise<void> {

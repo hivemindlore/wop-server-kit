@@ -65,6 +65,8 @@ export interface ServerView {
     note: string | null
     problem: string | null
     passwordTip: string | null
+    /** Once approved: open playit.gg to see and change the addresses. */
+    manageLabel: string | null
   } | null
   notice: Notice | null
   copied: string | null
@@ -314,8 +316,13 @@ export class ServerViewModel extends ViewModel<ServerView> {
       problem: online.phase === 'problem' ? online.message : null,
       passwordTip: ready && !this.server?.joinInfo?.join_password
         ? 'Anyone with this address can join. Set a join password below to keep it to your friends.'
-        : null
+        : null,
+      manageLabel: online.approved ? 'Manage on playit.gg' : null
     }
+  }
+
+  manageOnline(): void {
+    void this.api.call('server', 'manageOnline')
   }
 
   async removePassword(): Promise<void> {

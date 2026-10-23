@@ -70,6 +70,7 @@ class Bridge:
             "online.enable": self.online_enable,
             "online.advance": self.online_advance,
             "online.disable": self.online_disable,
+            "online.manage": self.online_manage,
             "log.history": self.log_history,
             "console.run": self.console_run,
             "ai.list": self.ai_list,
@@ -313,6 +314,9 @@ class Bridge:
 
     def online_disable(self) -> dict:
         return self.game.online.disable()
+
+    def online_manage(self) -> dict:
+        return self.game.online.manage()
 
     # ------------------------------------------------------------------ log and commands
 

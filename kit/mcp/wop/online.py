@@ -35,6 +35,10 @@ from .rcon import Rcon
 API_BASE = "https://api.playit.gg"
 CLAIM_PAGE = "https://playit.gg/claim/"
 TUNNEL_NAME = "WoP server"
+SOFTWARE = "World of PADMAN game server (a free Quake 3 engine shooter), for playing with friends"
+MANAGE_PAGE = "https://playit.gg/account/tunnels"
+GUEST_LOGIN = "https://playit.gg/login/guest-account/"
+LOG_LIMIT = 200_000   # bytes of online.log kept
 KIT_JSON = Path(__file__).resolve().parents[2] / "kit.json"
 KEEPER_LOCK = "keeper.lock"
 
@@ -75,35 +79,86 @@ def _post(path: str, body: dict, secret: str | None) -> object:
 
 
 class PlayitApi:
-    """The few calls of playit.gg's API the kit needs (the same ones playit's own setup uses)."""
+    """The few calls of playit.gg's API the kit needs. The claim is what playit's own setup sends; the tunnel
+    calls are the v1 ones playit.gg's website sends (the old /tunnels/create refuses custom tunnels now)."""
 
     def __init__(self, secret: str | None = None, post: Callable[[str, dict, str | None], object] = _post,
-                 version: str = ""):
+                 version: str = "", log: Callable[[str], None] = lambda _: None):
         self.secret = secret
         self.post = post
         self.version = version
+        self.log = log
+
+    def _call(self, path: str, body: dict, secret: str | None) -> object:
+        try:
+            return self.post(path, body, secret)
+        except PlayitRefused as e:
+            self.log(f"{path} refused: {e.reason}")
+            raise
+        except WopError as e:
+            self.log(f"{path} failed: {e}")
+            raise
 
     def claim_setup(self, code: str) -> str:
         """WaitingForUserVisit, WaitingForUser, UserAccepted or UserRejected."""
-        return str(self.post("/claim/setup", {"code": code, "agent_type": "self-managed",
-                                              "version": f"playit {self.version}"}, None))
+        return str(self._call("/claim/setup", {"code": code, "agent_type": "self-managed",
+                                               "version": f"playit {self.version}"}, None))
 
     def claim_exchange(self, code: str) -> str:
-        return str(self.post("/claim/exchange", {"code": code}, None)["secret_key"])
+        return str(self._call("/claim/exchange", {"code": code}, None)["secret_key"])
 
     def rundata(self) -> dict:
-        """agent_id, tunnels (with their address) and pending tunnels of this install's agent."""
-        return self.post("/agents/rundata", {}, self.secret)
+        """agent_id; tunnels with their display_address ("host:port") and agent_config (local_ip/local_port,
+        which playit's program reads); pending tunnels with a status_msg; notices."""
+        return self._call("/v1/agents/rundata", {}, self.secret)
 
     def create_tunnel(self, agent_id: str, port: int) -> str:
-        body = {"name": TUNNEL_NAME, "tunnel_type": None, "port_type": "udp", "port_count": 1,
-                "origin": {"type": "agent", "data": {"agent_id": agent_id, "local_ip": "127.0.0.1",
-                                                     "local_port": port}},
-                "enabled": True, "alloc": None, "firewall_id": None, "proxy_protocol": None}
-        return str(self.post("/tunnels/create", body, self.secret)["id"])
+        fields = [{"name": "local_ip", "value": "127.0.0.1"}, {"name": "local_port", "value": str(port)}]
+        body = {"name": TUNNEL_NAME,
+                "protocol": {"type": "raw-ports", "details": {"port_type": "udp", "port_count": 1,
+                                                              "software_description": SOFTWARE}},
+                "origin": {"type": "agent", "data": {"agent_id": agent_id, "config": {"fields": fields}}},
+                "endpoint": {"type": "region", "details": {"region": "global", "port": None}},
+                "enabled": True}
+        return str(self._call("/v1/tunnels/create", body, self.secret)["id"])
 
     def delete_tunnel(self, tunnel_id: str) -> None:
-        self.post("/tunnels/delete", {"tunnel_id": tunnel_id}, self.secret)
+        self._call("/tunnels/delete", {"tunnel_id": tunnel_id}, self.secret)
+
+    def guest_login(self) -> str:
+        """A web session for a guest account (refused with AccountIsNotGuest for a real account)."""
+        return str(self._call("/login/guest", {}, self.secret)["session_key"])
+
+
+def _field(tunnel: dict, name: str) -> str | None:
+    for field in (tunnel.get("agent_config") or {}).get("fields") or []:
+        if field.get("name") == name:
+            return str(field.get("value"))
+    return None
+
+
+def _local_port(tunnel: dict) -> int | None:
+    try:
+        return int(_field(tunnel, "local_port") or "")
+    except ValueError:
+        return None
+
+
+def _split_address(display: str) -> tuple[str, int] | None:
+    host, _, port = (display or "").rpartition(":")
+    return (host, int(port)) if host and port.isdigit() else None
+
+
+# playit.gg's refusals that people can do something about, in plain words
+REFUSALS = {
+    "RequiresVerifiedAccount": "playit.gg wants you to confirm your email address first. Open playit.gg (Manage on "
+                               "playit.gg), confirm it, then switch this on again.",
+    "AccountHasFlaggedTunnel": "playit.gg wants a description for one of your other addresses first. Open playit.gg "
+                               "(Manage on playit.gg) and update it, then switch this on again.",
+    "RequiresPlayitPremium": "playit.gg only allows this with its paid plan.",
+    "PublicPortRequiresPlayitPremium": "playit.gg only allows this with its paid plan.",
+    "RegionRequiresPlayitPremium": "playit.gg only allows this with its paid plan.",
+}
 
 
 def settings() -> dict:
@@ -119,8 +174,20 @@ class Online:
         self.behavior = behavior
         self.rcon = rcon or Rcon()
         self.pins = settings()
-        self.api = api or (lambda secret: PlayitApi(secret, version=self.pins["version"]))
+        self.api = api or (lambda secret: PlayitApi(secret, version=self.pins["version"], log=self.log))
         self.launch = launch or behavior.launch_hidden
+
+    def log(self, text: str) -> None:
+        """home/playit/online.log: what playit.gg refused and why, for troubleshooting."""
+        path = self.folder / "online.log"
+        try:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size > LOG_LIMIT:
+                path.write_text(path.read_text(encoding="utf-8", errors="replace")[-LOG_LIMIT // 2:], encoding="utf-8")
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {text}\n")
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------ files
 
@@ -192,7 +259,8 @@ class Online:
         enabled = self.available and bool(state.get("enabled"))
         address, port = state.get("address"), state.get("public_port")
         out = {"available": self.available, "enabled": enabled, "phase": "off", "address": address if enabled else None,
-               "port": port if enabled else None, "approve_url": None, "message": ""}
+               "port": port if enabled else None, "approve_url": None, "message": "",
+               "approved": self.available and self.secret() is not None}
         if not self.available:
             out["message"] = NOT_HERE
         elif not enabled:
@@ -203,7 +271,8 @@ class Online:
             out.update(phase="approving", approve_url=CLAIM_PAGE + state["claim"] if state.get("claim") else None,
                        message="Approve it once on playit.gg in your browser (it's free), then it switches on.")
         elif not address:
-            out.update(phase="starting", message="Getting an internet address from playit.gg...")
+            waiting = f" ({state['pending']})" if state.get("pending") else ""
+            out.update(phase="starting", message=f"Getting an internet address from playit.gg{waiting}...")
         elif not (self.rcon.is_running() if running is None else running):
             out.update(phase="server_off", message=f"Friends anywhere can join at {address}, port {port}, "
                                                    "while the server is on.")
@@ -258,6 +327,19 @@ class Online:
             state.pop(key, None)
         self._save(state)
         return {**self.status(running=False), "result": "Only players on your network can join now."}
+
+    def manage(self) -> dict:
+        """Open playit.gg to see and change the addresses. A guest account (no email) is signed in straight
+        away; that link is a login, so it goes to the browser only, never to the screen."""
+        secret = self.secret() if self.available else None
+        url = MANAGE_PAGE if secret else "https://playit.gg"
+        if secret:
+            try:
+                url = GUEST_LOGIN + self.api(secret).guest_login()
+            except WopError:
+                pass   # a real account (AccountIsNotGuest), or offline: the page asks to sign in
+        self.behavior.open_url(url)
+        return {"result": "playit.gg opened in your browser."}
 
     def forget(self, wait: float = 10.0) -> None:
         """Uninstall: switch off, let the keeper stop the program, and remove the address from playit.gg."""
@@ -316,28 +398,42 @@ class Online:
             return False
         port = self.rcon.port
         ours = state.get("tunnel_id")
-        tunnels = run.get("tunnels") or []
-        tunnel = next((t for t in tunnels if t.get("id") == ours), None) or next(
-            (t for t in tunnels if t.get("proto") == "udp" and t.get("local_port") == port), None)
-        if tunnel and tunnel.get("local_port") != port:   # the server moved to another port
+        udp = [t for t in run.get("tunnels") or [] if t.get("port_type") == "udp"]
+        # Ours by id; else one made for this port before (by this kit first), e.g. after online.json was lost
+        tunnel = next((t for t in udp if t.get("id") == ours), None) or next(
+            (t for t in udp if _local_port(t) == port and t.get("name") == TUNNEL_NAME), None) or next(
+            (t for t in udp if _local_port(t) == port), None)
+        if tunnel and _local_port(tunnel) != port:   # the server moved to another port
             api.delete_tunnel(tunnel["id"])
             tunnel, ours = None, None
-        if tunnel:
-            state.update(tunnel_id=tunnel["id"], address=tunnel.get("custom_domain") or tunnel["assigned_domain"],
-                         public_port=tunnel["port"]["from"])
-            if tunnel.get("disabled"):
-                state["problem"] = ("playit.gg has switched the internet address off. Open playit.gg and sign in "
-                                    "to see why, or switch internet play off.")
+        state.pop("pending", None)
+        found = tunnel and _split_address(tunnel.get("display_address", ""))
+        if tunnel and found:
+            state.update(tunnel_id=tunnel["id"], address=found[0], public_port=found[1])
+            if tunnel.get("disabled_reason"):
+                state["problem"] = (f"playit.gg has switched the internet address off ({tunnel['disabled_reason']}). "
+                                    "Open playit.gg (Manage on playit.gg) to see why, or switch internet play off.")
+                self.log(f"tunnel {tunnel['id']} disabled: {tunnel['disabled_reason']}")
             self._save(state)
             return True
-        if ours and any(p.get("id") == ours for p in run.get("pending") or []):
-            return True   # still being set up at playit.gg
+        if tunnel:   # there, but without its address yet
+            state["tunnel_id"] = tunnel["id"]
+            self._save(state)
+            return True
+        pending = next((p for p in run.get("pending") or [] if p.get("id") == ours), None) if ours else None
+        if pending:   # still being set up at playit.gg
+            if pending.get("status_msg"):
+                state["pending"] = pending["status_msg"]
+            self._save(state)
+            return True
         try:
             state["tunnel_id"] = api.create_tunnel(run["agent_id"], port)
         except PlayitRefused as e:
-            state["problem"] = f"playit.gg didn't give this server an internet address ({e.reason})."
+            state["problem"] = REFUSALS.get(e.reason) or (
+                f"playit.gg didn't give this server an internet address ({e.reason}).")
             self._save(state)
             raise WopError(state["problem"]) from None
+        self.log(f"asked playit.gg for an address: tunnel {state['tunnel_id']} to 127.0.0.1:{port}")
         for key in ("address", "public_port"):
             state.pop(key, None)
         self._save(state)

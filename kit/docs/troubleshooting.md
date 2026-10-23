@@ -276,10 +276,13 @@ Get-Content "$wop\home\wop\qconsole.log" -Tail 40
 - Is it switched on and approved? See what the kit remembers and what playit.gg's program says:
   ```powershell
   Get-Content "$wop\home\playit\online.json"
+  Get-Content "$wop\home\playit\online.log"      # what playit.gg refused, and why
   Get-Content "$wop\home\playit\keeper.log"
   Get-Content "$wop\home\playit\playitd.log" -Tail 30
   Get-Process playit-* -ErrorAction SilentlyContinue | Format-Table Id, Name, StartTime
   ```
+- See your addresses on playit.gg itself: **Manage on playit.gg** in the Server tab. The app's own log of errors
+  is `%APPDATA%\WoP Server\logs\kit.log`.
 - Approval page closed by accident: switch it off and on again in the Server tab; a new page opens.
 - Start over with a new address: switch it off, close the app, delete `home\playit` and switch it on again
   (you approve it once more). The old address can be removed on https://playit.gg after signing in.

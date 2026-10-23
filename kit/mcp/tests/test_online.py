@@ -58,6 +58,7 @@ class Playit:
         self.pending = []
         self.calls = []
         self.create_refusal = None
+        self.guest = False
 
     def post(self, path, body, secret):
         self.calls.append((path, body, secret))
@@ -70,22 +71,31 @@ class Playit:
         assert secret == "abcdef0123"
         if not self.secret_ok:
             raise online.PlayitRefused("AuthRequired")
-        if path == "/agents/rundata":
-            return {"agent_id": "agent-1", "tunnels": self.tunnels, "pending": self.pending}
-        if path == "/tunnels/create":
+        if path == "/v1/agents/rundata":
+            return {"agent_id": "agent-1", "tunnels": self.tunnels, "pending": self.pending, "notices": []}
+        if path == "/v1/tunnels/create":
             if self.create_refusal:
                 raise online.PlayitRefused(self.create_refusal)
-            self.pending.append({"id": "tunnel-1"})
+            self.pending.append({"id": "tunnel-1", "status_msg": "allocating a port"})
             return {"id": "tunnel-1"}
+        if path == "/login/guest":
+            if not self.guest:
+                raise online.PlayitRefused("AccountIsNotGuest")
+            return {"session_key": "web-session-1"}
         if path == "/tunnels/delete":
             self.tunnels = [t for t in self.tunnels if t["id"] != body["tunnel_id"]]
             return None
         raise AssertionError(path)
 
-    def allocate(self, port=27960, address="happy-pad.gl.ply.gg", public=41234):
+    def allocate(self, port=27960, address="happy-pad.gl.ply.gg", public=41234, disabled=None):
+        """What /v1/agents/rundata answers once playit.gg made the address (as seen on the real API)."""
         self.pending = []
-        self.tunnels = [{"id": "tunnel-1", "proto": "udp", "local_port": port, "assigned_domain": address,
-                         "custom_domain": None, "port": {"from": public, "to": public}, "disabled": None}]
+        self.tunnels = [{"id": "tunnel-1", "internal_id": 4973877, "name": "WoP server",
+                         "display_address": f"{address}:{public}", "port_type": "udp", "port_count": 1,
+                         "tunnel_type": None, "tunnel_type_display": "UDP",
+                         "agent_config": {"fields": [{"name": "local_ip", "value": "127.0.0.1"},
+                                                     {"name": "local_port", "value": str(port)}]},
+                         "disabled_reason": disabled}]
 
 
 @pytest.fixture
@@ -112,9 +122,10 @@ def launched():
 
 def make(behavior=None, rcon=None, playit=None, launched=None):
     playit = playit or Playit()
-    return online.Online(behavior or Behavior(), rcon or Rcon(),
-                         api=lambda secret: online.PlayitApi(secret, playit.post, "1.0.10"),
-                         launch=lambda argv, cwd: launched.append(argv) if launched is not None else None)
+    o = online.Online(behavior or Behavior(), rcon or Rcon(),
+                      launch=lambda argv, cwd: launched.append(argv) if launched is not None else None)
+    o.api = lambda secret: online.PlayitApi(secret, playit.post, "1.0.10", log=o.log)
+    return o
 
 
 def test_first_time_asks_for_approval_once(home, playit, launched):
@@ -137,15 +148,20 @@ def test_approved_gets_an_address_and_starts_the_keeper(home, playit, launched):
     status = o.enable()
     assert 'secret_key = "abcdef0123"' in (home / "home" / "playit" / "playit.toml").read_text()
     assert status["phase"] == "starting"                # the address is being set up
-    create = next(body for path, body, _ in playit.calls if path == "/tunnels/create")
-    assert create["port_type"] == "udp" and create["origin"]["data"] == {
-        "agent_id": "agent-1", "local_ip": "127.0.0.1", "local_port": 27960}
+    create = next(body for path, body, _ in playit.calls if path == "/v1/tunnels/create")
+    assert create["protocol"]["type"] == "raw-ports"
+    assert create["protocol"]["details"]["port_type"] == "udp" and create["protocol"]["details"]["port_count"] == 1
+    assert "World of PADMAN" in create["protocol"]["details"]["software_description"]
+    assert create["origin"] == {"type": "agent", "data": {"agent_id": "agent-1", "config": {"fields": [
+        {"name": "local_ip", "value": "127.0.0.1"}, {"name": "local_port", "value": "27960"}]}}}
+    assert create["endpoint"] == {"type": "region", "details": {"region": "global", "port": None}}
+    assert "allocating a port" in o.advance()["message"]   # the next look shows what playit.gg is doing
     assert launched and launched[0][1] == "-c" and "wop.online_keeper import main" in launched[0][2]
     assert launched[0][3:] == ["--home", str(home / "home"), "--port", "27960"]
     playit.allocate()
     status = o.enable()
     assert status["address"] == "happy-pad.gl.ply.gg" and status["port"] == 41234
-    assert sum(path == "/tunnels/create" for path, _, _ in playit.calls) == 1
+    assert sum(path == "/v1/tunnels/create" for path, _, _ in playit.calls) == 1
     assert o.join_details() == {"address": "happy-pad.gl.ply.gg", "port": 41234,
                                 "connect_command": "/connect happy-pad.gl.ply.gg:41234"}
 
@@ -205,7 +221,7 @@ def test_expired_approval_page_gets_a_new_one(home, playit):
         if path == "/claim/setup" and body["code"] == old_code:
             raise online.PlayitRefused("CodeExpired")
         return playit.post(path, body, secret)
-    o.api = lambda secret: online.PlayitApi(secret, post, "1.0.10")
+    o.api = lambda secret: online.PlayitApi(secret, post, "1.0.10", log=o.log)
     assert o.enable()["phase"] == "approving"
     assert len(behavior.opened) == 2 and behavior.opened[1] != first
 
@@ -225,12 +241,53 @@ def test_key_no_longer_known_asks_again(home, playit):
 def test_no_address_given(home, playit):
     o = make(playit=playit)
     playit.claim = "UserAccepted"
-    playit.create_refusal = "RequiresVerifiedAccount"
-    with pytest.raises(WopError, match="RequiresVerifiedAccount"):
+    playit.create_refusal = "SomethingNew"
+    with pytest.raises(WopError, match="SomethingNew"):
         o.enable()
     assert o.status()["phase"] == "problem"
+    assert "/v1/tunnels/create refused: SomethingNew" in (home / "home" / "playit" / "online.log").read_text()
     o.disable()
     assert o.status()["phase"] == "off"
+    playit.create_refusal = "RequiresVerifiedAccount"   # one people can fix: said in plain words
+    with pytest.raises(WopError, match="confirm your email"):
+        o.enable()
+
+
+def test_the_address_is_found_again_without_online_json(home, playit):
+    o = make(playit=playit)
+    playit.claim = "UserAccepted"
+    playit.allocate()
+    (home / "home" / "playit").mkdir(parents=True, exist_ok=True)
+    o._save_secret("abcdef0123")
+    o._save({"enabled": True, "problem": "an old problem"})   # e.g. 2.1.0 left this behind
+    status = o.enable()
+    assert status["address"] == "happy-pad.gl.ply.gg" and status["port"] == 41234
+    assert not any(path == "/v1/tunnels/create" for path, _, _ in playit.calls)
+
+
+def test_a_switched_off_address_is_a_problem(home, playit):
+    o = make(playit=playit)
+    playit.claim = "UserAccepted"
+    playit.allocate(disabled="AccountOverLimit")
+    status = o.enable()
+    assert status["phase"] == "problem" and "AccountOverLimit" in status["message"]
+
+
+def test_manage_opens_playit(home, playit):
+    behavior = Behavior()
+    o = make(behavior, playit=playit)
+    assert o.manage()["result"] == "playit.gg opened in your browser."
+    assert behavior.opened[-1] == "https://playit.gg"                       # not approved yet
+    playit.claim = "UserAccepted"
+    playit.allocate()
+    o.enable()
+    o.manage()
+    assert behavior.opened[-1] == "https://playit.gg/account/tunnels"       # a real account signs in there
+    playit.guest = True
+    result = o.manage()
+    assert behavior.opened[-1] == "https://playit.gg/login/guest-account/web-session-1"
+    assert "web-session-1" not in str(result)                               # the login link stays off screen
+    assert o.status()["approved"] is True
 
 
 def test_tunnel_follows_a_new_port(home, playit):
@@ -242,15 +299,15 @@ def test_tunnel_follows_a_new_port(home, playit):
     rcon.port = 27961                                   # the server was moved to another port
     o.enable()
     assert any(path == "/tunnels/delete" for path, _, _ in playit.calls)
-    create = next(body for path, body, _ in playit.calls if path == "/tunnels/create")
-    assert create["origin"]["data"]["local_port"] == 27961
+    create = next(body for path, body, _ in playit.calls if path == "/v1/tunnels/create")
+    assert create["origin"]["data"]["config"]["fields"][1] == {"name": "local_port", "value": "27961"}
     assert o.status()["phase"] == "starting"            # the new address is being set up
 
 
 def test_mac_has_no_internet_play(home):
     o = make(MacBehavior())
     assert o.status() == {"available": False, "enabled": False, "phase": "off", "address": None, "port": None,
-                          "approve_url": None, "message": online.NOT_HERE}
+                          "approve_url": None, "message": online.NOT_HERE, "approved": False}
     with pytest.raises(WopError, match="isn't available"):
         o.enable()
     assert o.join_details() is None and not o.start_keeper()

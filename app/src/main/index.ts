@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import { BridgeClient } from './bridge/BridgeClient'
 import { downloadFile, fetchJson, sha256File } from './downloads'
 import { registerIpc, type Models } from './ipc'
+import { logWriter } from './logFile'
 import { KitInstaller } from './kitInstall'
 import { AiModel } from './models/AiModel'
 import { AppModel } from './models/AppModel'
@@ -100,7 +101,11 @@ function main(): void {
 
   const behavior = detectBehavior()
   const installer = new KitInstaller(behavior, resourcesDir())
-  const bridge = new BridgeClient(installer.paths())
+  const kitLog = logWriter(join(app.getPath('userData'), 'logs', 'kit.log'))
+  const bridge = new BridgeClient(installer.paths(), process.env, (line) => {
+    console.error(`[kit] ${line}`)
+    kitLog(line)
+  })
   const models: Models = {
     app: new AppModel({
       bridge,

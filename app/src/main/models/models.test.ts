@@ -7,7 +7,7 @@ import { AppModel } from './AppModel'
 import { CommandModel } from './CommandModel'
 import { LogModel, MAX_LINES } from './LogModel'
 import { NetworkModel } from './NetworkModel'
-import { ONLINE_POLL_MS, ONLINE_WAIT_MS, POLL_MS, ServerModel } from './ServerModel'
+import { ONLINE_POLL_MS, ONLINE_REFRESH_POLLS, ONLINE_WAIT_MS, POLL_MS, ServerModel } from './ServerModel'
 import { UpdateModel, appVersionOf, type Release, type UpdateDeps } from './UpdateModel'
 
 const hello = (patch: Partial<Hello> = {}): Hello => ({
@@ -271,6 +271,41 @@ describe('ServerModel internet play', () => {
     const model = new ServerModel(bridge)
     await model.setOnline(true)
     expect(model.getState()).toMatchObject({ onlineBusy: false, notice: { kind: 'error' }, online: { phase: 'off' } })
+  })
+
+  it('notices now and then when someone else (Claude) switched it', async () => {
+    vi.useFakeTimers()
+    let phase = 'off'
+    const bridge = new FakeBridge({
+      'server.status': () => ({ running: true }),
+      'server.join_info': () => ({}),
+      'settings.get': () => ({}),
+      'online.status': () => status(phase)
+    })
+    const model = new ServerModel(bridge)
+    model.activate()
+    await vi.advanceTimersByTimeAsync(0)
+    phase = 'online'
+    await vi.advanceTimersByTimeAsync(POLL_MS * ONLINE_REFRESH_POLLS)
+    model.deactivate()
+    expect(model.getState().online?.phase).toBe('online')
+  })
+
+  it('opens playit.gg, and says when it could not', async () => {
+    let fail = false
+    const bridge = new FakeBridge({
+      'online.manage': () => {
+        if (fail) throw new Error('Something went wrong.')
+        return { result: 'playit.gg opened in your browser.' }
+      }
+    })
+    const model = new ServerModel(bridge)
+    await model.manageOnline()
+    expect(bridge.methods()).toEqual(['online.manage'])
+    expect(model.getState().notice).toBeNull()
+    fail = true
+    await model.manageOnline()
+    expect(model.getState().notice).toEqual({ kind: 'error', text: 'Something went wrong.' })
   })
 
   it('reads it again when the server starts or stops', async () => {

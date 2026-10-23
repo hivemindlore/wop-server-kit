@@ -158,6 +158,13 @@ export function ServerTab({ api }: { api: WopApi }) {
             )}
             {online.problem && <Notice kind="error">{online.problem}</Notice>}
             {online.passwordTip && <Notice kind="warn">{online.passwordTip}</Notice>}
+            {online.manageLabel && (
+              <div className="power-actions">
+                <Button kind="quiet" onClick={() => vm.manageOnline()}>
+                  {online.manageLabel}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </Card>

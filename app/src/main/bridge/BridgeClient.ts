@@ -35,7 +35,9 @@ export class BridgeClient extends EventEmitter<BridgeEvents> implements Bridge {
 
   constructor(
     private readonly paths: KitPaths,
-    private readonly env: NodeJS.ProcessEnv = process.env
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    /** What the kit writes to stderr (errors, tracebacks), e.g. into a log file. */
+    private readonly onStderr: (line: string) => void = (line) => console.error(`[kit] ${line}`)
   ) {
     super()
   }
@@ -63,7 +65,7 @@ export class BridgeClient extends EventEmitter<BridgeEvents> implements Bridge {
     })
     this.child = child
     createInterface({ input: child.stdout! }).on('line', (line) => this.receive(line))
-    createInterface({ input: child.stderr! }).on('line', (line) => console.error(`[kit] ${line}`))
+    createInterface({ input: child.stderr! }).on('line', (line) => this.onStderr(line))
     child.on('error', (error) => {
       if (this.child === child) this.detach(`The kit couldn't start: ${error.message}`, null)
     })

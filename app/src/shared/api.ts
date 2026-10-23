@@ -77,6 +77,8 @@ export interface OnlineStatus {
   port: number | null
   approve_url: string | null
   message: string
+  /** Approved once on playit.gg (this install has its key). */
+  approved: boolean
   result?: string
 }
 
@@ -227,6 +229,8 @@ export interface ModelCommands {
     setWeapons(instapad: boolean): Promise<void>
     setSpawnProtection(on: boolean): Promise<void>
     setOnline(on: boolean): Promise<void>
+    /** Opens playit.gg in the browser, to see and change the internet addresses. */
+    manageOnline(): Promise<void>
     play(): Promise<void>
   }
   network: {

@@ -91,8 +91,10 @@ No other code checks the OS. Add new OS-dependent behavior as a method on these 
   `kit/mcp/tests/conftest.py` with captured real server output. `kit/setup/conftest.py` puts `kit/mcp` on `sys.path`.
 
 ### Playing over the internet (playit.gg)
-`kit/mcp/wop/online.py` holds all of it (the app and Claude only call `enable` / `advance` / `disable` / `status`):
-the one-time approval on playit.gg (claim code → key in `home/playit/playit.toml`), the address from playit's API,
+`kit/mcp/wop/online.py` holds all of it (the app and Claude only call `enable` / `advance` / `disable` / `status` /
+`manage`): the one-time approval on playit.gg (claim code → key in `home/playit/playit.toml`), the address from
+playit's API (the v1 calls the playit.gg website sends, `/v1/tunnels/create` and `/v1/agents/rundata`; the old
+`/tunnels/create` refuses custom tunnels, and refusals are logged to `home/playit/online.log`),
 and `home/playit/online.json` (on/off, address; not install.json, to avoid write races with the setup). The
 playitd binary is pinned in `kit.json` "playit" and downloaded into `tools/playit-<version>`. `online_keeper.py` is a
 detached process (one per install, lock file) that runs playitd while the server runs and stops itself when the

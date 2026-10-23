@@ -43,6 +43,7 @@ in other homes can join too, with nothing to change on your router. It uses the 
 (you can continue as a guest or sign in). The app then shows an address and a port for your friends. The
 setting is kept: the address works whenever your server is on, and switching it off makes it home-only again.
 Anyone with the address can join, so set a join password if you want to keep it to your friends.
+**Manage on playit.gg** (under the address) opens playit.gg in your browser to see or change your addresses.
 Not available on Mac yet (playit.gg has no Mac version).
 
 ## Without the app
@@ -230,8 +231,11 @@ A World of PADMAN game you had installed yourself stays.
 - **Playing over the internet** (`kit/mcp/wop/online.py`): playit.gg's own program (playitd, pinned with sha256 in
   `kit.json` "playit", downloaded into `tools/` on first use) forwards a public UDP address to the game port on
   127.0.0.1. The host approves this install once on `https://playit.gg/claim/<code>`; the kit swaps the code for the
-  install's key (`home/playit/playit.toml`) and asks playit.gg's API for the address (`/agents/rundata`,
-  `/tunnels/create`). `home/playit/online.json` keeps on/off and the address. Whenever the server starts with it on
+  install's key (`home/playit/playit.toml`) and asks playit.gg's API for the address with the v1 calls the
+  playit.gg website itself uses (`/v1/tunnels/create` with a `raw-ports` UDP protocol, a software description and
+  an agent origin whose config fields `local_ip`/`local_port` playit's program reads; `/v1/agents/rundata` for its
+  `display_address`). The old `/tunnels/create` refuses custom tunnels. Refusals go to `home/playit/online.log`;
+  the app keeps the kit's error output in its own `logs/kit.log`. `home/playit/online.json` keeps on/off and the address. Whenever the server starts with it on
   (app, Claude, or the start window's banner), a small keeper (`wop/online_keeper.py`, one per install by a lock
   file) runs the program and stops it once internet play is switched off or the server stops answering. Players
   coming through playit arrive from 127.0.0.1, like the kit's own console commands, so the keeper only asks the
